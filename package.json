@@ -1,0 +1,10 @@
+{
+  "name": "keelstore-workspace",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node bridge/build.mjs && node react/build.mjs",
+    "test": "node --test bridge/test/*.test.mjs"
+  },
+  "engines": { "node": ">=18" }
+}

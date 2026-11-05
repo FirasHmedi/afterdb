@@ -1,0 +1,14 @@
+node_modules/
+dist/
+out/
+*.tgz
+.DS_Store
+example/android/.gradle/
+example/android/app/build/
+example/android/build/
+example/ios/Pods/
+converter/tmp/
+bridge/.cache/
+react/.cache/
+bridge/out/
+react/out/

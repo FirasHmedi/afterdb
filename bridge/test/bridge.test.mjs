@@ -152,6 +152,15 @@ puts JSON.generate($spec.attrs)
   rmSync(dir, { recursive: true, force: true });
 });
 
+test('Android: librealm.so is built with the app\'s NDK (rootProject.ext.ndkVersion) when it sets one', () => {
+  const gradle = read('binding/android/build.gradle');
+  const android = gradle.slice(gradle.indexOf('\nandroid {'), gradle.indexOf('\nproject.dependencies'));
+  assert.match(android, /\n    \/\/ Modified by Pomwik, 2026[^\n]*\n    if \(rootProject\.hasProperty\('ndkVersion'\)\) \{\n        ndkVersion rootProject\.ext\.ndkVersion\n    \}\n/);
+  // set only inside that condition: without it, AGP keeps its default NDK
+  assert.equal(gradle.match(/^\s*ndkVersion\b/gm).length, 1);
+  assert.equal(gradle.match(/^\s*ndkPath\b/gm), null);
+});
+
 test('Xcode 26.4: no header specializes std::is_pod any more (realm/realm-js#7115)', () => {
   const headers = walk(join(pkg, 'prebuilds/apple')).filter((f) => /\.(h|hpp)$/.test(f));
   assert.ok(headers.length > 100);

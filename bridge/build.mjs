@@ -199,6 +199,19 @@ const nativeModule = (() => {
 `,
   );
 
+  // 4e. Android: build librealm.so with the app's NDK, like other React Native libraries. Upstream sets no
+  //     ndkVersion, so AGP used its own default NDK (27.0 with AGP 8.12, 28.2 with AGP 9.2) instead of the app's.
+  patch(
+    join(pkg, 'binding/android/build.gradle'),
+    "    buildToolsVersion rootProject.hasProperty('buildToolsVersion') ? rootProject.buildToolsVersion : '28.0.3'\n",
+    `    buildToolsVersion rootProject.hasProperty('buildToolsVersion') ? rootProject.buildToolsVersion : '28.0.3'
+    // ${MARK}: the app's NDK (rootProject.ext.ndkVersion) when it sets one, otherwise AGP's default
+    if (rootProject.hasProperty('ndkVersion')) {
+        ndkVersion rootProject.ext.ndkVersion
+    }
+`,
+  );
+
   // 5. Xcode 26.4: libc++ forbids specializing std::is_pod, which the shipped s2 headers did (realm/realm-js#7115).
   //    Header-only change: the macros become no-ops (the types stay trivially copyable, nothing else relies on them).
   const xc = join(pkg, 'prebuilds/apple/realm-core.xcframework');

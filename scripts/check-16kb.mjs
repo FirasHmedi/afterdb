@@ -7,7 +7,7 @@
 //
 // Usage: node scripts/check-16kb.mjs <app.apk|app.aab|dir-with-.so-files> [--all]
 // Exit code: 0 all required libraries aligned, 1 a required library (or the APK zip alignment) is not aligned,
-// 2 usage error, unreadable input or no .so file.
+// 2 usage error, unreadable input, or no .so file that is an ELF file.
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
@@ -121,6 +121,10 @@ export function main(args, log = console.log, err = console.error) {
       if (!ok && !optional) bad++;
       const verdict = ok ? 'OK  ' : optional ? 'info' : 'FAIL';
       log(`${verdict} ${String(info.align).padStart(6)}  ${info.bits}-bit  ${rel}`);
+    }
+    if (skipped === files.length) {
+      err(`No ELF .so file found in ${input}: nothing was checked`);
+      return 2;
     }
     const reported = files.length - required - skipped;
     const extra = [!all && `${reported} 32-bit libraries reported only`, skipped && `${skipped} skipped (not ELF)`].filter(Boolean);

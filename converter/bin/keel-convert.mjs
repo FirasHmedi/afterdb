@@ -1,16 +1,17 @@
 #!/usr/bin/env node
-// keel-convert <in.realm> <out.sqlite> [--key <hex>] [--schema <schema.mjs>] [--report <dir>]
+// keel-convert <in.realm> <out.sqlite> [--schema <schema.mjs>] [--report <dir>]  (key in KEEL_KEY)
 import Realm from 'realm';
 import { convert } from '../src/convert.mjs';
 
 const USAGE = `Usage: keel-convert <input> <output.sqlite> [options]
-  --key <128 hex>      encryption key of the input file (64 bytes)
-  --schema <file.mjs>  app schema module (needed for backlinks)
+  --key <128 hex>      encryption key of the input file (64 bytes); visible in ps,
+                       prefer the KEEL_KEY environment variable
+  --schema <file.mjs>  app schema module: only adds backlinks, the file's schema is used
   --report <dir>       write report.json and report.md to <dir>
   --sample <n>         objects in the random field-by-field sample (default 300)
   --batch <n>          objects per transaction (default 1000)
-  --force              overwrite the output file
-Exit code: 0 verified, 2 verification failed, 1 error.`;
+  --force              replace the output file once the new one is verified
+Exit code: 0 verified, 2 verification failed (output kept as <output>.failed), 1 error.`;
 
 function parse(argv) {
   const pos = [];
@@ -35,6 +36,7 @@ try {
     console.log(USAGE);
     code = o.help ? 0 : 1;
   } else {
+    if (o.key) console.error('warning: --key is visible to other users in the process list (ps); prefer KEEL_KEY.');
     const r = await convert(pos[0], pos[1], {
       key: o.key ?? process.env.KEEL_KEY, schema: o.schema, report: o.report, force: o.force,
       sample: o.sample ? Number(o.sample) : undefined, batchSize: o.batch ? Number(o.batch) : undefined,

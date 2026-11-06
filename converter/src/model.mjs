@@ -23,17 +23,36 @@ export const isFloat = (t) => t === 'double' || t === 'float';
 export const SPECIAL_SUFFIX = '__x';
 
 // Columns for one scalar value; doubles get a companion column for NaN and -0.
-function scalarCols(name, type, optional) {
+function scalarCols(name, type, optional, x = name + SPECIAL_SUFFIX) {
   const cols = [{ name, sql: SCALAR_SQL[type], notNull: !optional, check: null }];
   if (type === 'bool') cols[0].check = `${q(name)} IN (0,1)`;
   if (isFloat(type)) {
     // The REAL column is NULL for NaN, so NOT NULL is enforced on the pair.
     cols[0].notNull = false;
-    const x = name + SPECIAL_SUFFIX;
     cols.push({ name: x, sql: 'TEXT', notNull: false, check: `${q(x)} IN ('NaN','-0')` });
     if (!optional) cols[0].check = `${q(name)} IS NOT NULL OR ${q(x)} = 'NaN'`;
   }
   return cols;
+}
+
+// SQLite folds ASCII letters only when comparing identifiers.
+const fold = (s) => String(s).replace(/[A-Z]/g, (c) => c.toLowerCase());
+export const META_TABLE = '_keel_meta';
+
+/**
+ * Case-insensitive name registry. A taken name gets the first free suffix
+ * "_2", "_3"...; names starting with "sqlite_" (reserved) get a "_" prefix.
+ */
+export class Names {
+  constructor(reserved = []) { this.used = new Set(reserved.map(fold)); }
+  has(n) { return this.used.has(fold(n)); }
+  take(want) {
+    const base = /^sqlite_/i.test(want) ? '_' + want : want;
+    let n = base;
+    for (let i = 2; this.has(n); i++) n = `${base}_${i}`;
+    this.used.add(fold(n));
+    return n;
+  }
 }
 
 /**
@@ -43,10 +62,25 @@ function scalarCols(name, type, optional) {
 export function buildModel(schema) {
   const warnings = [];
   const byName = new Map(schema.map((c) => [c.name, c]));
-  const model = { version: MODEL_VERSION, classes: {}, embedded: {} };
+  const model = { version: MODEL_VERSION, classes: {}, embedded: {}, renames: [] };
 
   // Keys first: links need the key type of their target.
   const keyOf = new Map();
+  const renames = [];
+  const named = (r) => {
+    renames.push(r);
+    const what = r.prop ? `${r.class}.${r.prop}` : r.class;
+    warnings.push(`${what}: ${r.kind} stored as "${r.to}" because "${r.from}" clashes with another name (SQLite ignores case; ${META_TABLE} and sqlite_* are reserved).`);
+  };
+  // Class tables first, in code-unit order, so a class keeps its name before generated ones.
+  const global = new Names([META_TABLE]);
+  const tableOf = new Map();
+  for (const cls of [...schema].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
+    if (cls.embedded || cls.asymmetric) continue;
+    const t = global.take(cls.name);
+    if (t !== cls.name) named({ kind: 'table', class: cls.name, from: cls.name, to: t });
+    tableOf.set(cls.name, t);
+  }
   for (const cls of schema) {
     if (cls.embedded || cls.asymmetric) continue;
     const pk = cls.primaryKey ? cls.properties[cls.primaryKey] : null;
@@ -111,48 +145,65 @@ export function buildModel(schema) {
       continue;
     }
     const key = keyOf.get(cls.name);
-    const table = { name: cls.name, table: cls.name, key, primaryKey: cls.primaryKey ?? null, props, columns: [], lists: [], views: [] };
-    if (key.synthetic) table.columns.push({ name: '_rid', sql: 'INTEGER', pk: true, notNull: true });
+    const tname = tableOf.get(cls.name);
+    const table = { name: cls.name, table: tname, key, primaryKey: cls.primaryKey ?? null, props, columns: [], lists: [], views: [] };
+    if (key.synthetic) {
+      if (props._rid) throw new Error(`${cls.name}: a class without primary key cannot have a property named "_rid" (reserved for the row key)`);
+      table.columns.push({ name: '_rid', sql: 'INTEGER', pk: true, notNull: true });
+    }
+    // Column names: the key column keeps its name, the others are made unique.
+    const colNames = new Names([key.column]);
+    const col = (n, want = n) => {
+      if (!key.synthetic && n === key.column && want === n) return n;
+      const c = colNames.take(want);
+      if (c !== want) named({ kind: 'column', class: cls.name, prop: n, from: want, to: c });
+      return c;
+    };
+    const generated = (n, kind, want) => {
+      const g = global.take(want);
+      if (g !== want) named({ kind, class: cls.name, prop: n, from: want, to: g });
+      return g;
+    };
 
     for (const [n, d] of Object.entries(props)) {
       if (d.kind === 'scalar') {
-        const cols = scalarCols(n, d.type, d.optional);
+        d.column = col(n);
+        if (isFloat(d.type)) d.special = col(n, d.column + SPECIAL_SUFFIX);
+        const cols = scalarCols(d.column, d.type, d.optional, d.special);
         if (!key.synthetic && n === key.column) Object.assign(cols[0], { pk: true, notNull: true });
         if (key.synthetic && n === cls.primaryKey) cols[0].unique = true;
-        d.column = n;
-        if (isFloat(d.type)) d.special = n + SPECIAL_SUFFIX;
         table.columns.push(...cols);
       } else if (d.kind === 'link') {
         const tk = keyOf.get(d.target);
-        d.column = n;
-        table.columns.push({ name: n, sql: tk.sql, notNull: false, fk: { table: d.target, column: tk.column, onDelete: 'SET NULL' } });
+        d.column = col(n);
+        table.columns.push({ name: d.column, sql: tk.sql, notNull: false, fk: { table: tableOf.get(d.target), column: tk.column, onDelete: 'SET NULL' } });
       } else if (d.kind === 'embedded' || d.kind === 'json') {
-        d.column = n;
+        d.column = col(n);
         const notNull = d.kind === 'embedded' ? d.many : d.ctype !== 'mixed';
-        table.columns.push({ name: n, sql: 'TEXT', notNull, check: `json_valid(${q(n)})` });
+        table.columns.push({ name: d.column, sql: 'TEXT', notNull, check: `json_valid(${q(d.column)})` });
       } else if (d.kind === 'list') {
-        d.table = `${cls.name}__${n}`;
+        d.table = generated(n, 'list table', `${tname}__${n}`);
         const cols = [
-          { name: 'owner', sql: key.sql, notNull: true, fk: { table: cls.name, column: key.column, onDelete: 'CASCADE' } },
+          { name: 'owner', sql: key.sql, notNull: true, fk: { table: tname, column: key.column, onDelete: 'CASCADE' } },
           { name: 'pos', sql: 'INTEGER', notNull: true },
         ];
         if (d.elem.type === 'object') {
           const tk = keyOf.get(d.elem.target);
-          cols.push({ name: 'target', sql: tk.sql, notNull: true, fk: { table: d.elem.target, column: tk.column, onDelete: 'CASCADE' } });
+          cols.push({ name: 'target', sql: tk.sql, notNull: true, fk: { table: tableOf.get(d.elem.target), column: tk.column, onDelete: 'CASCADE' } });
         } else {
           cols.push(...scalarCols('value', d.elem.type, d.elem.optional));
           if (isFloat(d.elem.type)) d.elem.special = 'value' + SPECIAL_SUFFIX;
         }
         table.lists.push({ table: d.table, prop: n, columns: cols });
       } else if (d.kind === 'backlink') {
-        d.view = `${cls.name}__${n}`;
+        d.view = generated(n, 'backlink view', `${tname}__${n}`);
         table.views.push({ view: d.view, prop: n });
       }
     }
     const names = new Set();
     for (const c of table.columns) {
-      if (names.has(c.name)) throw new Error(`${cls.name}: column name clash on "${c.name}"`);
-      names.add(c.name);
+      if (names.has(fold(c.name))) throw new Error(`${cls.name}: column name clash on "${c.name}"`);
+      names.add(fold(c.name));
     }
     model.classes[cls.name] = table;
   }
@@ -174,6 +225,7 @@ export function buildModel(schema) {
       }
     }
   }
+  model.renames = renames;
   for (const t of Object.values(model.classes)) {
     for (const [n, d] of Object.entries(t.props)) {
       if (d.kind === 'json') {
@@ -199,6 +251,12 @@ function colDDL(c) {
 export function ddl(model) {
   const tables = [];
   const after = [];
+  const names = new Names([META_TABLE]);
+  for (const t of Object.values(model.classes)) {
+    names.take(t.table);
+    for (const l of t.lists) names.take(l.table);
+    for (const v of t.views) names.take(t.props[v.prop].view);
+  }
   for (const t of Object.values(model.classes)) {
     const cols = t.columns.map(colDDL);
     tables.push(`CREATE TABLE ${q(t.table)} (\n  ${cols.join(',\n  ')}\n)${t.key.synthetic ? '' : ' WITHOUT ROWID'};`);
@@ -206,11 +264,11 @@ export function ddl(model) {
       const cols = l.columns.map(colDDL);
       cols.push('PRIMARY KEY ("owner", "pos")');
       tables.push(`CREATE TABLE ${q(l.table)} (\n  ${cols.join(',\n  ')}\n) WITHOUT ROWID;`);
-      if (l.columns.some((c) => c.name === 'target')) after.push(`CREATE INDEX ${q(l.table + '__target')} ON ${q(l.table)}("target");`);
+      if (l.columns.some((c) => c.name === 'target')) after.push(`CREATE INDEX ${q(names.take(l.table + '__target'))} ON ${q(l.table)}("target");`);
     }
     for (const [n, d] of Object.entries(t.props)) {
       if (d.kind === 'link' || (d.kind === 'scalar' && d.indexed)) {
-        after.push(`CREATE INDEX ${q(t.table + '__' + n)} ON ${q(t.table)}(${q(n)});`);
+        after.push(`CREATE INDEX ${q(names.take(t.table + '__' + n))} ON ${q(t.table)}(${q(d.column)});`);
       }
     }
   }
@@ -227,6 +285,6 @@ export function ddl(model) {
       after.push(`CREATE VIEW ${q(d.view)} AS ${body};`);
     }
   }
-  after.push('CREATE TABLE "_keel_meta" ("key" TEXT PRIMARY KEY, "value" TEXT NOT NULL) WITHOUT ROWID;');
+  after.push(`CREATE TABLE ${q(META_TABLE)} ("key" TEXT PRIMARY KEY, "value" TEXT NOT NULL) WITHOUT ROWID;`);
   return { tables, after };
 }

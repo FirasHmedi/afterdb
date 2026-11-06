@@ -28,6 +28,7 @@ export function toMarkdown(r) {
     for (const t of v.views) L.push(`| ${t.view} | ${t.expected} | ${t.rows} | ${yes(t.ok)} |`);
   }
   L.push('', '## Checks', '');
+  L.push(`- Every class and property of the file is in the output: ${v.schemaCheck.ok ? 'yes' : '**NO**, missing: ' + v.schemaCheck.missing.join(', ')}`);
   L.push(`- Foreign key check: ${v.foreignKeyCheck.violations} violation(s)`);
   L.push(`- Integrity check: ${v.integrityCheck}`);
   L.push(`- Per-object SHA-256 mismatches: ${v.mismatchCount}`);

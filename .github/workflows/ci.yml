@@ -1,6 +1,7 @@
 name: CI
 
 # Packages, tests, Android build of the example app with the 16 KB check, and the iOS build.
+# The packages are built once (job packages) and the exact same tarballs are used by the android and ios jobs.
 # iOS runs on macOS runners, which cost 10x the minutes of a private repository: it only runs when started by hand
 # (Actions tab) until the repository is public.
 on:
@@ -14,78 +15,147 @@ on:
         type: boolean
         default: true
 
+permissions:
+  contents: read
+
+# bash --noprofile --norc -eo pipefail: a failing command on the left of a pipe fails the step
+defaults:
+  run:
+    shell: bash
+
+# Pull requests: a new push cancels the running build. Pushes to main and manual runs are never cancelled
+# (a new run waits for the current one); the event name keeps a manual run from replacing a pending push run.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   packages:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - uses: actions/cache@v4
-        with:
-          path: |
-            bridge/.cache
-            react/.cache
-          key: upstream-${{ hashFiles('bridge/build.mjs', 'react/build.mjs', 'bridge/openssl/build-openssl.sh') }}
-      - name: OpenSSL 3.5 LTS for Android (cached)
-        run: bridge/openssl/build-openssl.sh
-      - run: npm run build
-      - run: npm test
-      - name: Converter tests
-        working-directory: converter
-        run: npm ci && npm test
-
-  android:
-    runs-on: ubuntu-24.04
+    # a cold OpenSSL build (4 ABIs) takes most of this; with the cache the job takes a few minutes
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
-      - uses: actions/setup-java@v4
+      - name: Android NDK 27
+        id: ndk
+        run: |
+          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          echo "NDKs in $sdk/ndk:"; ls -1 "$sdk/ndk" 2>/dev/null || true
+          # highest 27.* by revision (the glob order would put 27.10 before 27.2)
+          best=""; bestkey=0; bestrev=""
+          for d in "$sdk"/ndk/27.*; do
+            [ -f "$d/source.properties" ] || continue
+            rev=$(sed -n 's/^Pkg\.Revision *= *//p' "$d/source.properties" | tr -d '\r')
+            IFS=. read -r a b c <<<"$rev"
+            key=$(( ${a:-0} * 10000000000 + ${b:-0} * 100000000 + ${c:-0} ))
+            if [ "$key" -gt "$bestkey" ]; then bestkey=$key; best=$d; bestrev=$rev; fi
+          done
+          if [ -z "$best" ]; then
+            echo "::error::No Android NDK 27.* in $sdk/ndk: bridge/openssl/build-openssl.sh needs one"
+            exit 1
+          fi
+          echo "Using NDK $bestrev ($best)"
+          echo "ANDROID_NDK_ROOT=$best" >> "$GITHUB_ENV"
+          echo "version=$bestrev" >> "$GITHUB_OUTPUT"
+      # only the 4 built archives and the upstream 3.3.1 arm64 archive, not the 900 MB openssl-build scratch folder
+      - name: OpenSSL cache
+        uses: actions/cache@v6
+        with:
+          path: bridge/.cache/openssl
+          key: openssl-${{ hashFiles('bridge/openssl/build-openssl.sh') }}-ndk-${{ steps.ndk.outputs.version }}
+      # upstream tarballs and Node binaries, checksummed by the build scripts on every reuse
+      - name: Upstream downloads cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            bridge/.cache/*.tgz
+            bridge/.cache/node
+            react/.cache
+          key: upstream-${{ hashFiles('bridge/build.mjs', 'react/build.mjs') }}
+      - name: OpenSSL 3.5 LTS for Android (skipped per ABI when cached)
+        run: bridge/openssl/build-openssl.sh
+      - run: npm run build
+      - name: Packages
+        run: ls -l bridge/out/*.tgz react/out/*.tgz && sha256sum bridge/out/*.tgz react/out/*.tgz
+      - run: npm test
+      - name: Converter tests (with the keelstore package, nothing from static.realm.io)
+        working-directory: converter
+        run: |
+          # --ignore-scripts: the lockfile's upstream realm@20.2.0 would run prebuild-install (static.realm.io).
+          # Our package replaces it and ships the Node binaries.
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm install --no-save --ignore-scripts --no-audit --no-fund realm@file:../bridge/out/pomwik-keelstore-20.3.0.tgz
+          # no rebuild needed: better-sqlite3 13 has no install script and ships its binaries in prebuilds/
+          name=$(node -p 'require("./node_modules/realm/package.json").name')
+          [ "$name" = "@pomwik/keelstore" ] || { echo "::error::converter tests would run on $name, not @pomwik/keelstore"; exit 1; }
+          npm test
+      # shared with the android and ios jobs (a cache, not an artifact: artifact storage is small on a private repo)
+      - name: Share the packages
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            bridge/out/*.tgz
+            react/out/*.tgz
+          key: packages-${{ github.sha }}
+
+  android:
+    needs: packages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: 17
-      - uses: actions/cache@v4
+      - name: Packages from the packages job
+        uses: actions/cache/restore@v6
         with:
           path: |
-            bridge/.cache
-            react/.cache
-          key: upstream-${{ hashFiles('bridge/build.mjs', 'react/build.mjs', 'bridge/openssl/build-openssl.sh') }}
-      - uses: actions/cache@v4
+            bridge/out/*.tgz
+            react/out/*.tgz
+          key: packages-${{ github.sha }}
+          fail-on-cache-miss: true
+      - name: Packages (same SHA-256 as in the packages job)
+        run: ls -l bridge/out/*.tgz react/out/*.tgz && sha256sum bridge/out/*.tgz react/out/*.tgz
+      - uses: actions/cache@v6
         with:
           path: ~/.gradle/caches
           key: gradle-${{ hashFiles('example/android/**/*.gradle*', 'example/package.json') }}
-      - name: OpenSSL 3.5 LTS for Android (cached)
-        run: bridge/openssl/build-openssl.sh
-      - run: npm run build
       - name: Install the example app (realm and @realm/react aliased to the keelstore packages)
         working-directory: example
         run: npm install --no-audit --no-fund
       - name: Release build, 4 ABIs
         working-directory: example/android
-        run: ./gradlew assembleRelease --console=plain | tee gradle.log
+        run: ./gradlew assembleRelease --console=plain
       - name: OpenSSL comes from the package (same bytes, version 3.5.9), not from static.realm.io
         working-directory: example/node_modules/realm
+        env:
+          V: 3.5.9
         run: |
+          shopt -s nullglob
           n=0
           for abi in arm64-v8a armeabi-v7a x86 x86_64; do
-            d=$(ls -d binding/android/.cxx/Release/*/$abi | head -1)
-            cmp "$d/openssl/openssl.tar.gz" prebuilds/android/$abi/deps/openssl-*-android.tar.gz
-            grep -q 'OpenSSL 3\.5\.9' "$d/openssl/include/openssl/opensslv.h"
-            echo "$abi: bundled OpenSSL 3.5.9"; n=$((n+1))
+            dirs=(binding/android/.cxx/Release/*/"$abi"/openssl-"$V")
+            deps=(prebuilds/android/"$abi"/deps/openssl-"$V"-*-android.tar.gz)
+            [ ${#dirs[@]} -gt 0 ] || { echo "::error::$abi: no binding/android/.cxx/Release/*/$abi/openssl-$V"; exit 1; }
+            [ ${#deps[@]} -eq 1 ] || { echo "::error::$abi: expected 1 prebuilds/android/$abi/deps/openssl-$V-*-android.tar.gz, found ${#deps[@]}"; exit 1; }
+            for d in "${dirs[@]}"; do
+              cmp "$d/openssl.tar.gz" "${deps[0]}"
+              grep -qF "OpenSSL $V" "$d/include/openssl/opensslv.h"
+            done
+            echo "$abi: bundled OpenSSL $V"; n=$((n+1))
           done
           [ "$n" -eq 4 ]
       - name: 16 KB page alignment of every native library
         run: node scripts/check-16kb.mjs example/android/app/build/outputs/apk/release/app-release.apk
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: example-release-apk
           path: example/android/app/build/outputs/apk/release/app-release.apk
@@ -93,45 +163,73 @@ jobs:
 
   ios:
     if: github.event_name == 'workflow_dispatch' && inputs.ios
+    needs: packages
     runs-on: macos-26
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        frameworks: ['', static, dynamic]
-    name: ios (frameworks ${{ matrix.frameworks || 'none' }})
+        frameworks: [none, static, dynamic]
+    name: ios (frameworks ${{ matrix.frameworks }})
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - name: Xcode 26.4 or newer
         run: |
-          ls -d /Applications/Xcode_26.* || true
-          XC=$(ls -d /Applications/Xcode_26.4*.app 2>/dev/null | tail -1)
-          [ -n "$XC" ] || XC=$(ls -d /Applications/Xcode_26.*.app | sort -V | tail -1)
-          sudo xcode-select -s "$XC"
+          echo "Installed:"; ls -d /Applications/Xcode*.app || true
+          best=""; bestkey=0; bestv=""
+          for app in /Applications/Xcode_26.*.app; do
+            [ -d "$app" ] || continue
+            case "$app" in *[Bb]eta*|*Release_Candidate*) continue ;; esac
+            v=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist" 2>/dev/null) || continue
+            IFS=. read -r a b c <<<"$v"
+            key=$(( ${a:-0} * 10000 + ${b:-0} * 100 + ${c:-0} ))
+            if [ "$key" -ge 260400 ] && [ "$key" -gt "$bestkey" ]; then bestkey=$key; best=$app; bestv=$v; fi
+          done
+          if [ -z "$best" ]; then
+            echo "::error::No released Xcode 26.x >= 26.4 in /Applications (React Native 0.88 and the keelstore patches need it)"
+            exit 1
+          fi
+          echo "Using Xcode $bestv ($best)"
+          sudo xcode-select -s "$best"
+          echo "DEVELOPER_DIR=$best/Contents/Developer" >> "$GITHUB_ENV"
           xcodebuild -version
-      - uses: actions/cache@v4
+      # React Native treats USE_FRAMEWORKS as set even when empty: only export it for static or dynamic
+      - name: USE_FRAMEWORKS=${{ matrix.frameworks }}
+        env:
+          FRAMEWORKS: ${{ matrix.frameworks }}
+        run: |
+          case "$FRAMEWORKS" in
+            static|dynamic) echo "USE_FRAMEWORKS=$FRAMEWORKS" >> "$GITHUB_ENV"; echo "USE_FRAMEWORKS=$FRAMEWORKS" ;;
+            none) echo "USE_FRAMEWORKS not set" ;;
+            *) echo "::error::unknown matrix value $FRAMEWORKS"; exit 1 ;;
+          esac
+      - name: Packages from the packages job
+        uses: actions/cache/restore@v6
         with:
           path: |
-            bridge/.cache
-            react/.cache
-          key: upstream-${{ hashFiles('bridge/build.mjs', 'react/build.mjs', 'bridge/openssl/build-openssl.sh') }}
-      - name: OpenSSL 3.5 LTS for Android (cached)
-        run: bridge/openssl/build-openssl.sh
-      - run: npm run build
+            bridge/out/*.tgz
+            react/out/*.tgz
+          key: packages-${{ github.sha }}
+          fail-on-cache-miss: true
+      - name: Packages (same SHA-256 as in the packages job)
+        run: ls -l bridge/out/*.tgz react/out/*.tgz && shasum -a 256 bridge/out/*.tgz react/out/*.tgz
       - working-directory: example
         run: npm install --no-audit --no-fund
       - name: pod install
         working-directory: example/ios
-        env:
-          USE_FRAMEWORKS: ${{ matrix.frameworks }}
         run: bundle install && bundle exec pod install
       - name: Simulator build (Debug)
         working-directory: example/ios
-        env:
-          USE_FRAMEWORKS: ${{ matrix.frameworks }}
         run: |
-          xcodebuild -workspace KeelExample.xcworkspace -scheme KeelExample -configuration Debug \
-            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build | tail -40
+          # full log in a file: on failure, print the errors and the end of the log
+          if ! xcodebuild -workspace KeelExample.xcworkspace -scheme KeelExample -configuration Debug \
+              -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build \
+              > xcodebuild.log 2>&1; then
+            grep -E '(error|fatal error):|BUILD FAILED' xcodebuild.log | head -100 || true
+            tail -80 xcodebuild.log
+            exit 1
+          fi
+          tail -20 xcodebuild.log

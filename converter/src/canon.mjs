@@ -118,13 +118,16 @@ function propR(model, d, v) {
   }
 }
 
+// The file is opened without a schema, so backlinks are asked for by origin.
+const backlinksR = (model, d, obj) => [...obj.linkingObjects(d.source, d.sourceProp)].map((s) => keyR(model, d.source, s)).sort(cmpKey);
+
 /** Canonical object read from the SDK. Backlinks become sorted key arrays. */
 export function canonRealm(model, cls, obj) {
   const t = model.classes[cls];
   const out = { [t.key.synthetic ? '_rid' : t.key.column]: keyR(model, cls, obj) };
   for (const [n, d] of Object.entries(t.props)) {
     if (d.kind === 'backlink') {
-      out[n] = [...obj[n]].map((s) => keyR(model, d.source, s)).sort(cmpKey);
+      out[n] = backlinksR(model, d, obj);
     } else {
       out[n] = propR(model, d, obj[n]);
     }
@@ -135,7 +138,7 @@ export function canonRealm(model, cls, obj) {
 /** Per-property canonical values (for the field-by-field sample). */
 export function canonRealmField(model, cls, obj, prop) {
   const d = model.classes[cls].props[prop];
-  if (d.kind === 'backlink') return [...obj[prop]].map((s) => keyR(model, d.source, s)).sort(cmpKey);
+  if (d.kind === 'backlink') return backlinksR(model, d, obj);
   return propR(model, d, obj[prop]);
 }
 

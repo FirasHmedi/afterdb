@@ -39,12 +39,26 @@ function countSpecials(model, t, canon) {
   return n;
 }
 
+/** Every class and property stored in the file must be in the model. */
+function schemaCheck(fileSchema, model) {
+  const missing = [];
+  for (const c of fileSchema) {
+    if (c.asymmetric) continue;
+    const props = c.embedded ? model.embedded[c.name]?.props : model.classes[c.name]?.props;
+    if (!props) { missing.push(c.name); continue; }
+    for (const p of Object.keys(c.properties)) if (!props[p]) missing.push(`${c.name}.${p}`);
+  }
+  return { ok: missing.length === 0, missing };
+}
+
 /**
+ * @param realm the source, opened without a schema (so realm.schema is the file's)
  * @returns verification result (plain JSON). `ok` is true when every check passes.
  */
 export async function verify(realm, db, model, { sample = 300, seed = 1 } = {}) {
   const out = { tables: [], lists: [], views: [], digests: [], mismatchCount: 0, mismatches: [], lossy: { realm: 0, sqlite: 0 } };
   const listMismatch = (m) => { out.mismatchCount++; if (out.mismatches.length < MAX_LISTED) out.mismatches.push(m); };
+  out.schemaCheck = schemaCheck(realm.schema, model);
 
   for (const t of Object.values(model.classes)) {
     const kc = t.key.synthetic ? '_rid' : t.key.column;
@@ -114,7 +128,7 @@ export async function verify(realm, db, model, { sample = 300, seed = 1 } = {}) 
   out.integrityCheck = db.prepare('PRAGMA integrity_check').pluck().all().join('; ');
   out.sample = await sampleCheck(realm, db, model, sample, seed);
 
-  out.ok = out.tables.every((x) => x.ok) && out.lists.every((x) => x.ok) && out.views.every((x) => x.ok) &&
+  out.ok = out.schemaCheck.ok && out.tables.every((x) => x.ok) && out.lists.every((x) => x.ok) && out.views.every((x) => x.ok) &&
     out.digests.every((x) => x.equal) && out.mismatchCount === 0 && fk.length === 0 &&
     out.integrityCheck === 'ok' && out.sample.mismatchCount === 0 && out.lossy.realm === out.lossy.sqlite;
   return out;

@@ -149,13 +149,14 @@ test('non-ELF and truncated files are skipped, not a stack trace', { skip: noNdk
   assert.match(r.stdout, /2 skipped \(not ELF\)/);
 });
 
-test('non-ELF file alone: skipped, no stack trace', () => {
+test('non-ELF file alone: skipped, nothing checked, exit 2, no stack trace', () => {
   const d = join(work, 'notelf-only');
   mkdirSync(join(d, 'lib/arm64-v8a'), { recursive: true });
   writeFileSync(join(d, 'lib/arm64-v8a/libfake.so'), 'not an elf');
   const r = run(d);
-  assert.equal(r.status, 0, r.stdout + r.stderr);
-  assert.equal(r.stderr, '');
+  assert.equal(r.status, 2, r.stdout + r.stderr);
+  assert.match(r.stderr, /No ELF \.so file found/);
+  assert.doesNotMatch(r.stderr, /at .*check-16kb\.mjs/);
   assert.match(r.stdout, /skip \(not ELF\)\s+lib\/arm64-v8a\/libfake\.so/);
 });
 

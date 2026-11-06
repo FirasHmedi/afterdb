@@ -5,28 +5,69 @@ React Native apps) and writes an equivalent SQLite database. Then it checks the
 result against the source and writes a report. The source file is opened
 read-only and its SHA-256 is compared before and after.
 
-Private package, not published. Node 22+, ESM, no build step.
+Private package, not published yet. License: Apache-2.0. Node 22+, ESM, no build step.
 
 ```
 npm install
-npx keel-convert app.realm app.sqlite [--key <128 hex>] [--schema schema.mjs] [--report out/]
+KEEL_KEY=<128 hex> npx keel-convert app.realm app.sqlite [--schema schema.mjs] [--report out/]
 ```
 
 | option | |
 |---|---|
-| `--key` | encryption key of the source (64 bytes as 128 hex characters; also read from `KEEL_KEY`) |
-| `--schema` | the app's JS schema module (`export const schema = [...]` or a default export). Needed for backlinks, which are not stored in the file |
+| `KEEL_KEY` (environment) | encryption key of the source, 64 bytes as 128 hex characters. Recommended way to pass the key |
+| `--key` | same key on the command line. Other users can see it in `ps`, so the CLI prints a warning; use `KEEL_KEY` |
+| `--schema` | the app's JS schema module (`export const schema = [...]` or a default export). Only used to add backlinks, which are not stored in the file (see Schema) |
 | `--report <dir>` | writes `report.json` and `report.md` |
 | `--sample <n>` | size of the field-by-field random sample (default 300) |
 | `--batch <n>` | objects per transaction (default 1000) |
-| `--force` | overwrite the output |
+| `--force` | replace an existing output, once the new one is verified |
 
-Exit code: 0 verified, 2 verification failed, 1 error. The output is written to
-`<out>.partial` and renamed at the end.
+Exit code: 0 verified, 2 verification failed, 1 error.
+
+Output files: the database is written to `<out>.partial`. If verification passes,
+it is renamed to `<out>` (with `--force`, this replaces the old file only at that
+moment; before that the old file is untouched). If verification fails, it is
+renamed to `<out>.failed` (replacing an older `.failed`) and `<out>` is not
+written, so a failed file cannot be shipped by mistake. On an error, `.partial`
+is deleted.
 
 API: `convert(input, output, opts)`, `verifyFile(input, sqlite, opts)` (src/convert.mjs),
 `translate(query, { model, className, args, quirks })` (src/rql.mjs). The mapping
 model is stored in the output, in table `_keel_meta` (key `model`).
+
+## Schema
+
+The source is always opened without a schema, so the SDK shows exactly the
+classes and properties stored in the file, and the SQL model is built from that.
+Classes or properties that the app no longer declares are still in the file
+(the SDK does not delete them) and are converted.
+
+`--schema` only adds backlinks (`linkingObjects`), which exist in the app code
+and not in the file. The app schema is also compared with the file; each
+difference is a `Schema drift:` warning in the report (class or property only in
+the file: converted; only in the app schema: no table or column; different type
+or primary key: the file wins). Verification reads the file the same way and
+also checks that every class and property of the file is in the output.
+
+## Name conflicts
+
+SQLite names ignore ASCII case, the object database does not. Generated names
+can also collide (list table `A__b` for class `A`, list `b`, next to a class
+`A__b`), and `_keel_meta` and `sqlite_*` are reserved. Such names get a suffix:
+
+- class tables are named first, in code-unit order: `Item` keeps its name,
+  `item` becomes `item_2`; a class `_keel_meta` becomes `_keel_meta_2`;
+  `sqlite_x` becomes `_sqlite_x`;
+- then columns, in property order (the primary key column never changes):
+  `name` stays, `Name` becomes `Name_2`; a property `d__x` next to a double `d`
+  becomes `d__x_2`;
+- then list tables, backlink views and indexes: `A__b_2`.
+
+Each rename is a warning in the report and is recorded in `_keel_meta`
+(key `renames`: `[{kind, class, prop, from, to}]`) and in the model, which the
+query translator uses. The names depend only on the file's schema, so a
+second conversion gives the same names. One case still fails, with a clear
+message: a class without primary key that has a property named exactly `_rid`.
 
 ## Mapping
 
@@ -168,18 +209,20 @@ The test fails on any unexplained mismatch or translator error.
 
 ## Tests
 
-`npm test` (about 5 s): conversion of every type and edge value (NaN, -0,
+`npm test` (about 6 s): conversion of every type and edge value (NaN, -0,
 ±Infinity, empty strings, É/Ç/ß/emoji, NFD, NUL character, 100 000-character
 string, dates before 1970, max decimal128), with and without app schema,
-encrypted source, tamper detection, CLI, differential queries, scale.
+encrypted source, tamper detection, CLI, differential queries, scale, schema
+drift (class or property missing from the app schema), backlinks from
+`--schema`, `--force` and `.failed` handling, name conflicts.
 
 Figures (darwin arm64, Node 22.19.0):
 
 | test | result |
 |---|---|
-| `npm test` | 10 tests: 9 pass, 0 fail, 1 skipped (200 000 objects) |
+| `npm test` | 16 tests: 15 pass, 0 fail, 1 skipped (200 000 objects) |
 | all-types fixture | 0 hash mismatches, 0 sample mismatches over > 1 000 fields, 0 FK violations, source SHA-256 unchanged |
-| scale 20 000 objects (2 lists each, self links) | convert + verify 1.6 s, peak RSS 189 MB |
+| scale 20 000 objects (2 lists each, self links) | convert + verify 1.9 s, peak RSS 187 MB |
 | scale 200 000 (`KEEL_SCALE_200K=1`) | convert + verify 16.3 s (load 7.4 s, verify 8.9 s), peak RSS 420 MB, 20 MB in, 19.7 MB out |
 
 ## Known limits
@@ -199,3 +242,4 @@ Figures (darwin arm64, Node 22.19.0):
 - Strings with a NUL character are stored whole, but SQLite `length()`/`instr()` stop at the NUL.
 - Files that need a format upgrade cannot be opened read-only; they fail with the SDK error (open a copy).
 - Asymmetric classes are skipped.
+- A class without primary key cannot have a property named `_rid` (fails with a message).

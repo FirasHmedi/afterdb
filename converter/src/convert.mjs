@@ -6,7 +6,8 @@ import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import Realm from 'realm';
 import Database from 'better-sqlite3';
-import { buildModel, ddl, q, isFloat } from './model.mjs';
+import { buildModel, ddl, q, isFloat, META_TABLE } from './model.mjs';
+import { mergeAppSchema } from './schema.mjs';
 import { scalarToSql, floatPair, keyToSql, embeddedToJson, collectionToJson } from './values.mjs';
 import { verify } from './verify.mjs';
 import { relax } from './gc.mjs';
@@ -37,17 +38,14 @@ export async function loadSchema(file) {
 const AUX = ['.lock', '.note', '.management', '.fresh.lock', '.log', '.log_a', '.log_b'];
 
 /**
- * Open the source read-only. Files the SDK creates next to it (.lock, .note,
- * .management) are removed afterwards if they did not exist before.
+ * Open the source read-only, without a schema: the SDK then exposes exactly the
+ * classes and properties stored in the file. Files the SDK creates next to it
+ * (.lock, .note, .management) are removed afterwards if they did not exist before.
  */
-async function openSource(input, { key, schema }) {
+async function openSource(input, { key }) {
   const existing = new Set(AUX.filter((s) => fs.existsSync(input + s)));
   const config = { path: path.resolve(input), readOnly: true };
   if (key) config.encryptionKey = key;
-  if (schema) {
-    config.schema = schema;
-    config.schemaVersion = Realm.schemaVersion(config.path, key);
-  }
   const realm = await Realm.open(config);
   const cleanup = () => {
     for (const s of AUX) {
@@ -96,25 +94,30 @@ export async function convert(input, output, opts = {}) {
   const sampleRss = () => { peakRss = Math.max(peakRss, process.memoryUsage().rss); };
 
   if (!fs.existsSync(input)) throw new Error(`input not found: ${input}`);
-  if (fs.existsSync(output)) {
-    if (!opts.force) throw new Error(`output exists: ${output} (use --force)`);
-    fs.rmSync(output);
-  }
+  // With --force the old output stays in place until the new one is verified.
+  if (fs.existsSync(output) && !opts.force) throw new Error(`output exists: ${output} (use --force)`);
   const shaBefore = await fileSha256(input);
   const inputSize = fs.statSync(input).size;
   timings.hashBeforeMs = performance.now() - t0;
 
   let t = performance.now();
-  const { realm, cleanup } = await openSource(input, { key, schema });
+  const { realm, cleanup } = await openSource(input, { key });
   timings.openMs = performance.now() - t;
   const partial = output + '.partial';
   fs.rmSync(partial, { force: true });
   const db = new Database(partial);
   let result;
   try {
-    const { model, warnings: mw } = buildModel(realm.schema);
+    let source = realm.schema;
+    if (schema) {
+      const m = mergeAppSchema(realm.schema, schema);
+      source = m.schema;
+      warnings.push(...m.warnings);
+    } else {
+      warnings.push('No app schema given (--schema): backlinks (linkingObjects) are not stored in the file and are not converted.');
+    }
+    const { model, warnings: mw } = buildModel(source);
     warnings.push(...mw);
-    if (!schema) warnings.push('No app schema given (--schema): backlinks (linkingObjects) are not stored in the file and are not converted.');
     db.pragma('journal_mode = OFF');
     db.pragma('synchronous = OFF');
     db.pragma('foreign_keys = OFF');
@@ -166,12 +169,14 @@ export async function convert(input, output, opts = {}) {
 
     t = performance.now();
     db.exec(after.join('\n'));
-    const meta = db.prepare('INSERT INTO "_keel_meta" VALUES (?, ?)');
+    const meta = db.prepare(`INSERT INTO ${q(META_TABLE)} VALUES (?, ?)`);
     meta.run('model', JSON.stringify(model));
+    meta.run('renames', JSON.stringify(model.renames));
     meta.run('tool', `@keelstore/converter ${TOOL_VERSION}`);
     meta.run('source_sha256', shaBefore);
     timings.indexMs = performance.now() - t;
 
+    if (opts._beforeVerify) opts._beforeVerify(db); // test hook
     t = performance.now();
     const verification = await verify(realm, db, model, { sample: opts.sample ?? 300, seed: opts.seed ?? 1 });
     sampleRss();
@@ -189,11 +194,15 @@ export async function convert(input, output, opts = {}) {
     realm.close();
     cleanup();
   }
-  fs.renameSync(partial, output);
-
   t = performance.now();
   const shaAfter = await fileSha256(input);
   timings.hashAfterMs = performance.now() - t;
+  // Only a verified file gets the final name (replacing any old one). A failed
+  // one is kept as <out>.failed for inspection, so it cannot be shipped by mistake.
+  const ok = shaBefore === shaAfter && result.verification.ok;
+  const final = ok ? output : output + '.failed';
+  fs.renameSync(partial, final);
+  if (!ok) warnings.push(`Verification failed: output kept as ${final}; ${output} was not written.`);
   timings.totalMs = performance.now() - t0;
   sampleRss();
 
@@ -201,8 +210,8 @@ export async function convert(input, output, opts = {}) {
     tool: `@keelstore/converter ${TOOL_VERSION}`,
     createdAt: new Date().toISOString(),
     input: { path: path.resolve(input), bytes: inputSize, sha256Before: shaBefore, sha256After: shaAfter, unchanged: shaBefore === shaAfter, encrypted: !!key },
-    output: { path: path.resolve(output), bytes: fs.statSync(output).size },
-    schemaSource: schema ? 'app schema (--schema)' : 'file',
+    output: { path: path.resolve(final), bytes: fs.statSync(final).size },
+    schemaSource: schema ? 'file, plus backlinks from the app schema (--schema)' : 'file',
     classes: Object.keys(result.model.classes).length,
     embeddedClasses: Object.keys(result.model.embedded).length,
     verification: result.verification,
@@ -211,17 +220,19 @@ export async function convert(input, output, opts = {}) {
     peakRssMB: Math.round(peakRss / 1048576),
     platform: `${os.platform()} ${os.arch()}, node ${process.version}`,
   };
-  report.ok = report.input.unchanged && result.verification.ok;
+  report.ok = ok;
   if (opts.report) writeReport(opts.report, report);
   return report;
 }
 
-/** Re-run verification on an existing output file (model read from _keel_meta). */
+/**
+ * Re-run verification on an existing output file (model read from _keel_meta).
+ * No app schema is needed: backlinks are read with linkingObjects().
+ */
 export async function verifyFile(input, sqliteFile, opts = {}) {
   const key = typeof opts.key === 'string' ? parseKey(opts.key) : opts.key;
-  const schema = typeof opts.schema === 'string' ? await loadSchema(opts.schema) : opts.schema;
   const shaBefore = await fileSha256(input);
-  const { realm, cleanup } = await openSource(input, { key, schema });
+  const { realm, cleanup } = await openSource(input, { key });
   const db = new Database(sqliteFile, { readonly: true });
   try {
     const model = JSON.parse(db.prepare('SELECT "value" FROM "_keel_meta" WHERE "key" = \'model\'').pluck().get());

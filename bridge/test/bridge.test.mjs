@@ -5,7 +5,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { ANDROID_ABIS, DESCRIPTION, IOS_FALLBACK_MIN, NAME, NODE_TARGETS, OPENSSL, VERSION } from '../build.mjs';
 import { NAME as REACT_NAME, VERSION as REACT_VERSION } from '../../react/build.mjs';
@@ -40,6 +40,16 @@ test('final names: @pomwik/afterdb 20.3.0 and @pomwik/afterdb-react 0.20.1', () 
   assert.equal(packed(REACT_NAME, REACT_VERSION), 'pomwik-afterdb-react-0.20.1.tgz');
 });
 const read = (f) => readFileSync(join(pkg, f), 'utf8');
+// Temporary folders are removed after the run (the offline install alone leaves about 700 MB)
+const temps = [];
+const tmp = (prefix) => {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  temps.push(dir);
+  return dir;
+};
+after(() => {
+  for (const d of temps) rmSync(d, { recursive: true, force: true });
+});
 const walk = (dir) => readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)]));
 
 test('the packages were built', () => {
@@ -128,7 +138,7 @@ test('iOS: podspec minimum iOS version is React Native\'s, not 9.0', () => {
 // records the attributes: once without React Native's helpers, once with stubs of min_ios_version_supported and
 // install_modules_dependencies (defined by React Native's react_native_pods.rb when the Podfile requires it).
 test('iOS: the podspec evaluates in Ruby, with and without React Native\'s helpers', { skip: !has('ruby', ['-v']) }, () => {
-  const dir = mkdtempSync(join(tmpdir(), 'afterdb-podspec-'));
+  const dir = tmp('afterdb-podspec-');
   writeFileSync(
     join(dir, 'eval.rb'),
     `require 'json'
@@ -189,7 +199,7 @@ test('Xcode 26.4: no header specializes std::is_pod any more (realm/realm-js#711
 });
 
 test('Xcode 26.4: the patched s2 headers still compile (no regression; this clang accepts upstream too)', { skip: !hasClang() }, () => {
-  const dir = mkdtempSync(join(tmpdir(), 'afterdb-s2-'));
+  const dir = tmp('afterdb-s2-');
   const inc = join(pkg, 'prebuilds/apple/realm-core.xcframework/ios-arm64/Headers');
   writeFileSync(
     join(dir, 'check.cpp'),
@@ -231,7 +241,7 @@ test('Android: the OpenSSL archives record no local account, and their include.c
 
 /** Runs realm_acquire_dependency(openssl) of the AcquireRealmDependency.cmake in `share` with `cmake -P`, in a new folder */
 function acquireOpenSSL(share) {
-  const dir = mkdtempSync(join(tmpdir(), 'afterdb-cmake-'));
+  const dir = tmp('afterdb-cmake-');
   writeFileSync(
     join(dir, 'check.cmake'),
     `set(ANDROID ON)\nset(CMAKE_SYSTEM_NAME Android)\nset(CMAKE_ANDROID_ARCH_ABI arm64-v8a)\ninclude("${share}/AcquireRealmDependency.cmake")\nrealm_acquire_dependency(openssl ${OPENSSL} OUT)\nif(NOT EXISTS "\${OUT}")\n  message(FATAL_ERROR "include.cmake missing: \${OUT}")\nendif()\nmessage(STATUS "OK \${OUT}")\n`,
@@ -256,7 +266,7 @@ test('Android: the CMake script checks the SHA-256 of the bundled OpenSSL, then 
 
 test('Android: a damaged bundled OpenSSL archive stops the CMake configure (FATAL_ERROR, nothing extracted or downloaded)', { skip: !cmakeBin() }, () => {
   // same layout as the package: <abi>/share/cmake/Realm/*.cmake and <abi>/deps/<archive>, with one byte changed
-  const abi = mkdtempSync(join(tmpdir(), 'afterdb-damaged-'));
+  const abi = tmp('afterdb-damaged-');
   const name = `openssl-${OPENSSL}-arm64-android.tar.gz`;
   cpSync(join(pkg, 'prebuilds/android/arm64-v8a/share/cmake/Realm'), join(abi, 'share/cmake/Realm'), { recursive: true });
   const archive = readFileSync(join(pkg, 'prebuilds/android/arm64-v8a/deps', name));
@@ -281,7 +291,7 @@ test('Android: a damaged bundled OpenSSL archive stops the CMake configure (FATA
 });
 
 test('install offline as « realm » through an alias, open, write, query, encrypt (Node)', () => {
-  const app = mkdtempSync(join(tmpdir(), 'afterdb-app-'));
+  const app = tmp('afterdb-app-');
   writeFileSync(join(app, 'package.json'), JSON.stringify({ name: 'app', private: true, type: 'module', dependencies: { realm: `file:${tarball}` } }));
   // The package has no install script, so nothing can be downloaded during install (dependencies come from the npm cache)
   execFileSync('npm', ['install', '--no-audit', '--no-fund', '--prefer-offline', '--ignore-scripts=false'], { cwd: app, stdio: 'pipe', timeout: 300_000 });
@@ -310,7 +320,7 @@ process.exit(0);
 });
 
 test('afterdb-react: react-native is an optional peer, not a nested dependency (realm/realm-js#7066)', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'afterdb-react-'));
+  const dir = tmp('afterdb-react-');
   execFileSync('tar', ['-xzf', reactTarball, '-C', dir]);
   const pj = JSON.parse(readFileSync(join(dir, 'package/package.json'), 'utf8'));
   assert.equal(pj.name, REACT_NAME);
@@ -322,7 +332,7 @@ test('afterdb-react: react-native is an optional peer, not a nested dependency (
 });
 
 test('afterdb-react: metadata, and a NOTICE without OpenSSL (the package ships none)', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'afterdb-react-'));
+  const dir = tmp('afterdb-react-');
   execFileSync('tar', ['-xzf', reactTarball, '-C', dir]);
   const pj = JSON.parse(readFileSync(join(dir, 'package/package.json'), 'utf8'));
   assertMetadata(pj);

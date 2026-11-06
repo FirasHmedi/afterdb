@@ -1,0 +1,33 @@
+This folder started from the React Native app template (@react-native-community/cli init). The files that come from
+the template, as changed for this example (the android/ and ios/ projects, index.js, app.json, package.json,
+__tests__/, Gemfile, .bundle/, and the Babel, Metro, Jest, ESLint, Prettier, TypeScript and Watchman
+configurations), are under the MIT licence below.
+
+Two kinds of template files keep the licence stated in their own headers: the Gradle wrapper (android/gradlew,
+android/gradlew.bat, android/gradle/wrapper/), Apache-2.0, and
+android/app/src/main/res/drawable/rn_edit_text_material.xml (The Android Open Source Project), Apache-2.0.
+
+App.tsx, schema.ts, README.md and this example's self-check are afterdb's, under the Apache License 2.0 (../LICENSE).
+
+MIT License
+
+Copyright (c) Meta Platforms, Inc. and affiliates.
+Copyright (c) 2018 react-native-community
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

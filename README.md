@@ -18,8 +18,8 @@ Xcode upgrade tends to break it. afterdb keeps those apps building while their t
 |---|---|---|
 | `bridge/` | `@pomwik/afterdb`: the official `realm@20.2.0` package, verified, with build fixes (no engine change) | Built and tested |
 | `react/` | `@pomwik/afterdb-react`: `@realm/react@0.20.0` with `react-native` as an optional peer | Built and tested |
-| `converter/` | `afterdb-convert`: `.realm` → SQLite with per-object verification, and an RQL ↔ SQL differential test | Tested on desktop (Node) |
-| `example/` | React Native 0.88.1 app that uses both packages through npm aliases and runs a self-check | See the matrix |
+| `converter/` | `keel-convert`: `.realm` → SQLite with per-object verification, and an RQL ↔ SQL differential test | Tested on desktop (Node) |
+| `example/` | React Native 0.88.1 app that installs both packages under the names `realm` and `@realm/react` (local `file:` tarballs, as the npm alias would) and runs a self-check | See the matrix |
 | `scripts/check-16kb.mjs` | Checks that every 64-bit `.so` of an APK/AAB is 16 KB aligned (Google Play, 1 Feb 2027), and runs `zipalign -P 16` if found | Tested (`node --test scripts/check-16kb.test.mjs`), run in CI |
 
 Fixes compared with `realm@20.2.0` (details and credits in `CHANGES-FROM-UPSTREAM.md`):
@@ -37,10 +37,10 @@ Only what has actually been run is marked as passing. See `docs/TEST-RESULTS.md`
 | Area | Status |
 |---|---|
 | Node 22: install offline, open, write, query, encrypted realm | Pass (`npm test`: macOS arm64 local, Linux x64 CI) |
-| realm-js's own Node integration tests (645) and `@realm/react` tests, compared with upstream 20.2.0 | Same results as upstream (local, macOS arm64) |
+| realm-js's own Node integration tests and `@realm/react` tests, compared with upstream 20.2.0 (local, macOS arm64 only) | Node: 645 tests, identical results test by test; `@realm/react`: same results in 35 of 36 runs (one run froze under machine load) |
 | Android, React Native 0.88.1, new architecture, Hermes: Debug and Release builds, 4 ABIs, OpenSSL 3.5.9 LTS | Pass (local and CI) |
 | Android app run (13-check self-check, data kept after a restart): Android 7 (minimum), 11, 16, and 16 with **16 KB pages** | Pass (emulators, CI; 16 KB pages also local) |
-| React Native 0.86.3 and 0.87.1 (bare), Expo SDK 56 (RN 0.85.3), 57 (RN 0.86.3) and 58 (RN 0.88.1) on Android | Pass (local emulator, 16 KB pages) |
+| React Native 0.86.3 and 0.87.1 (bare), Expo SDK 56 (RN 0.85.3), 57 (RN 0.86.3) and 58 (RN 0.88.1) on Android | Pass (local emulator, 16 KB pages; RN 0.86.3 and 0.87.1 rerun with the current packages, `librealm.so` built with the app's NDK) |
 | Release builds with R8 (Expo 58 default, or `minifyEnabled`) | Pass: the package ships its keep rules (local) |
 | 16 KB alignment of every 64-bit native library, `zipalign -P 16` | Pass (local and CI) |
 | No download from static.realm.io during `npm install` or the Android build | Pass (local; OpenSSL origin checked in CI) |
@@ -106,9 +106,15 @@ Security problems: see `SECURITY.md`.
 
 ## Need help?
 
-Diagnostic of your Realm app, migration of your data to SQLite at a fixed price, or guaranteed fixes after each
-React Native, Expo or Xcode release: [pomwik.com/realm](https://pomwik.com/realm/) or hello@pomwik.com.
+Diagnostic of your Realm app, migration of your data to SQLite at a fixed price, or fixes after each React Native,
+Expo or Xcode release, under a support agreement: [pomwik.com/realm](https://pomwik.com/realm/) or hello@pomwik.com.
 
 ## Licence
 
-Apache-2.0, converter included. See `LICENSE`, `NOTICE` and `CHANGES-FROM-UPSTREAM.md`.
+Apache-2.0, converter included. See `LICENSE`, `NOTICE` and `CHANGES-FROM-UPSTREAM.md`. The prebuilt realm-core
+engine shipped in `@pomwik/afterdb` contains third-party code under other licences: see `THIRD-PARTY-NOTICES.md`.
+
+Exceptions: `example/` contains files from the React Native app template, under the MIT licence (Copyright (c)
+Meta Platforms, Inc. and affiliates; text in `example/LICENSE-template`), and its Gradle wrapper files keep their
+own Apache-2.0 headers. `examples/expo-58/` started from Expo's `blank-typescript` template (Expo, 650 Industries,
+Inc.), published under the 0BSD licence.

@@ -8,4 +8,4 @@ Use it through an npm alias: `"@realm/react": "npm:@pomwik/afterdb-react@0.20.1"
 Realm® is a trademark of MongoDB, Inc. This project is independent and not affiliated with or endorsed by MongoDB.
 Licence: Apache-2.0 (see LICENSE and NOTICE).
 
-Modified by Pomwik, 2026: this file replaces the upstream README (see CHANGES-FROM-UPSTREAM.md).
+Modified by Pomwik (Firas Hmedi), 2026: this file replaces the upstream README (see CHANGES-FROM-UPSTREAM.md).

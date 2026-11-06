@@ -14,3 +14,8 @@ bridge/out/
 react/out/
 example/package-lock.json
 example/android/.kotlin/
+# npm tokens and local secrets: never committed
+.npmrc
+.env
+.env*
+!.env.example

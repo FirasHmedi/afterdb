@@ -6,9 +6,9 @@ changed.
 
 Realm® is a trademark of MongoDB, Inc. This project is independent and not affiliated with or endorsed by MongoDB.
 
-Every file listed here was modified, removed or added. Modified text files carry a « Modified by Pomwik, 2026 »
-note, except `package.json`: JSON has no comments, so it carries an `afterdb` field instead (upstream name, version
-and npm integrity).
+Every file listed here was modified, removed or added. Modified text files carry a « Modified by Pomwik (Firas
+Hmedi), 2026 » note, except `package.json`: JSON has no comments, so it carries an `afterdb` field instead (upstream
+name, version and npm integrity).
 
 ## @pomwik/afterdb 20.3.0 (from realm@20.2.0)
 
@@ -16,9 +16,10 @@ and npm integrity).
 |---|---|---|
 | `package.json` | `name` and `version` | New package |
 | `package.json` | `description`, `homepage`, `repository`, `bugs` and `author` replaced (Pomwik, github.com/FirasHmedi/afterdb); `mongodb` removed from `keywords` | The package is not MongoDB's and must not look like it |
+| `package.json` | `license`: `Apache-2.0` instead of upstream's `apache-2.0` (the podspec's `s.license` reads it too) | `Apache-2.0` is the SPDX identifier that npm expects; the licence itself is unchanged |
 | `package.json` | `install` and `postinstall` scripts removed; `prebuild-install` and `node-machine-id` dependencies removed; `binary` field removed; `exports["./scripts/submit-analytics"]` removed | No download and no analytics at install time (realm/realm-js#7119, #7068, #7126) |
 | `package.json` | `imports["#realm.node"]` removed | Its only user was `dist/platform/node/binding.js` (patched below); the build checks that nothing else in the package refers to it |
-| `package.json` | `gypfile: false`; `files`: `binding.gyp` removed, `prebuilds/node`, `LICENSE`, `NOTICE`, `CHANGES-FROM-UPSTREAM.md` and `checksums.txt` added | See `binding.gyp` below; the added files ship in the package |
+| `package.json` | `gypfile: false`; `files`: `binding.gyp` removed, `prebuilds/node`, `LICENSE`, `NOTICE`, `THIRD-PARTY-NOTICES.md`, `CHANGES-FROM-UPSTREAM.md` and `checksums.txt` added | See `binding.gyp` below; the added files ship in the package |
 | `package.json` | `afterdb` field added | Marks the file as modified, and records where it comes from |
 | `dist/scripts/submit-analytics.*`, `scripts/submit-analytics.js` | Removed | Install-time analytics |
 | `prebuilds/node/<platform>-<arch>/realm.node` | Added: the upstream N-API binaries for darwin-arm64, darwin-x64, linux-x64, linux-arm64, win32-x64 | Installs work offline and in CI |
@@ -34,8 +35,9 @@ and npm integrity).
 | `prebuilds/android/<abi>/share/cmake/Realm/RealmConfig.cmake` | Acquires OpenSSL 3.5.9 instead of 3.3.1 | Same |
 | `prebuilds/android/<abi>/share/cmake/Realm/AcquireRealmDependency.cmake` | Uses the bundled archive, downloads only as a fallback; the SHA-256 of the bundled archive is written into the file at build time, and CMake checks it with `file(SHA256)` before using the archive (a mismatch stops the build with `FATAL_ERROR`); the extraction folder includes the version (`openssl-3.5.9`) | Same, a damaged archive is never used, and a build folder left by upstream (OpenSSL 3.3.1) is never reused |
 | `binding.gyp` | Removed | It only rebuilds the Node binary from source; npm would otherwise run node-gyp at install |
-| `README.md` | Replaced, with a « Modified by Pomwik, 2026 » note | Describes this package |
-| `LICENSE`, `NOTICE`, `CHANGES-FROM-UPSTREAM.md`, `checksums.txt` | Added (the upstream tarball has no LICENSE file) | Licence and traceability |
+| `README.md` | Replaced, with a « Modified by Pomwik (Firas Hmedi), 2026 » note | Describes this package |
+| `LICENSE`, `NOTICE`, `THIRD-PARTY-NOTICES.md`, `CHANGES-FROM-UPSTREAM.md`, `checksums.txt` | Added (the upstream tarball has no LICENSE file). `THIRD-PARTY-NOTICES.md` lists the third-party code inside the prebuilt realm-core engine and the Node binaries, with its licence texts | Licence and traceability |
+| `RealmJS.podspec`, `binding/android` | Not renamed, on purpose: the iOS pod `RealmJS`, the Android namespace `io.realm.react` and the native library `librealm.so` keep their upstream names. The pod version follows the package version (20.3.0, not an upstream release) | Drop-in compatibility: React Native autolinking, existing Podfiles and lockfiles, and the native code that looks up `io.realm.react` classes by name keep working unchanged |
 
 ## @pomwik/afterdb-react 0.20.1 (from @realm/react@0.20.0)
 
@@ -46,7 +48,7 @@ and npm integrity).
 | `package.json` | `react-native` moved from `optionalDependencies` to an optional peer dependency; the `realm` peer range (`>=20.0.0`) is unchanged, and `@pomwik/afterdb` satisfies it through the `realm` npm alias | A nested copy of react-native broke Android builds (realm/realm-js#7066) |
 | `package.json` | `files`: `NOTICE` and `CHANGES-FROM-UPSTREAM.md` added (`LICENSE` was already listed upstream, once) | The added files ship in the package |
 | `package.json` | `afterdb` field added | Marks the file as modified, and records where it comes from |
-| `README.md` | Replaced, with a « Modified by Pomwik, 2026 » note | Describes this package |
+| `README.md` | Replaced, with a « Modified by Pomwik (Firas Hmedi), 2026 » note | Describes this package |
 | `LICENSE`, `NOTICE`, `CHANGES-FROM-UPSTREAM.md` | Added (the upstream tarball has no LICENSE file). This `NOTICE` has no OpenSSL paragraph: the package ships no OpenSSL | Licence and traceability |
 
 ## Credits

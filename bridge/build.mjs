@@ -68,7 +68,7 @@ function patch(file, from, to, times = 1) {
   writeFileSync(file, text.split(from).join(to));
 }
 
-const MARK = 'Modified by Pomwik, 2026, see CHANGES-FROM-UPSTREAM.md';
+const MARK = 'Modified by Pomwik (Firas Hmedi), 2026, see CHANGES-FROM-UPSTREAM.md';
 
 export const DESCRIPTION =
   'Independent, maintained fork of the open-source Realm® JavaScript SDK v20 (realm-js, Apache-2.0): local database, no sync, with build fixes for current React Native and Xcode. Not affiliated with or endorsed by MongoDB, Inc.';
@@ -95,7 +95,7 @@ export async function build() {
   const pkg = join(work, 'package');
   const checksums = [];
 
-  // 2. package.json: new name, no install or postinstall script (no download, no analytics)
+  // 2. package.json: new name, SPDX licence id, no install or postinstall script (no download, no analytics)
   const pj = JSON.parse(readFileSync(join(pkg, 'package.json'), 'utf8'));
   for (const k of ['install', 'postinstall']) {
     if (!pj.scripts?.[k]) throw new Error(`package.json: script ${k} not found upstream`);
@@ -109,18 +109,21 @@ export async function build() {
   if (!pj.exports['./scripts/submit-analytics']) throw new Error("package.json: exports['./scripts/submit-analytics'] not found upstream");
   delete pj.exports['./scripts/submit-analytics'];
   if (!pj.keywords?.includes('mongodb')) throw new Error('package.json: keyword mongodb not found upstream');
+  // upstream writes the licence in lower case, which is not a valid SPDX identifier
+  if (pj.license !== 'apache-2.0') throw new Error(`package.json: license ${pj.license} upstream, expected apache-2.0`);
   Object.assign(pj, {
     name: NAME,
     version: VERSION,
     description: DESCRIPTION,
     keywords: pj.keywords.filter((k) => k !== 'mongodb'),
+    license: 'Apache-2.0',
     ...PROJECT,
     afterdb: { upstream: `${UPSTREAM.name}@${UPSTREAM.version}`, upstreamIntegrity: meta.dist.integrity },
   });
   // binding.gyp only rebuilds the Node binary from source (shipped prebuilt here): without an install script npm
   // would run node-gyp on it automatically, hence gypfile: false and no binding.gyp in the package
   pj.gypfile = false;
-  pj.files = [...pj.files.filter((f) => f !== 'binding.gyp'), 'prebuilds/node', 'LICENSE', 'NOTICE', 'CHANGES-FROM-UPSTREAM.md'];
+  pj.files = [...pj.files.filter((f) => f !== 'binding.gyp'), 'prebuilds/node', 'LICENSE', 'NOTICE', 'THIRD-PARTY-NOTICES.md', 'CHANGES-FROM-UPSTREAM.md'];
   writeFileSync(join(pkg, 'package.json'), JSON.stringify(pj, null, 2) + '\n');
   rmSync(join(pkg, 'binding.gyp'), { force: true });
   for (const f of ['dist/scripts/submit-analytics.js', 'dist/scripts/submit-analytics.d.ts', 'dist/scripts/submit-analytics.js.map', 'scripts/submit-analytics.js']) rmSync(join(pkg, f), { force: true });
@@ -286,7 +289,8 @@ typedef int Dummy_Type_For_PROPAGATE_POD_FROM_TEMPLATE_ARGUMENT`,
     if (!existsSync(built)) throw new Error(`${built} missing: run bridge/openssl/build-openssl.sh ${OPENSSL}`);
     const buf = readFileSync(built);
     // Inside a function, CMAKE_CURRENT_LIST_DIR is the caller's folder: record this file's folder when it is included.
-    // The SHA-256 of the archive is recorded too: CMake checks it before extracting the archive (brief item F5).
+    // The SHA-256 of the archive is recorded too: CMake checks it before extracting the archive, so a damaged or
+    // replaced archive stops the build.
     patch(
       join(pkg, 'prebuilds/android', abi, 'share/cmake/Realm/AcquireRealmDependency.cmake'),
       'function(realm_acquire_dependency dep_name dep_version out_dep_cmake)',
@@ -348,12 +352,13 @@ function(realm_acquire_dependency dep_name dep_version out_dep_cmake)`,
     );
   }
 
-  // 7. Licence files and a visible list of changes (Apache-2.0, section 4)
+  // 7. Licence files, third-party notices of the prebuilt binaries, and a visible list of changes (Apache-2.0, section 4)
   writeFileSync(join(pkg, 'checksums.txt'), checksums.join('\n') + '\n');
   pj.files.push('checksums.txt');
   writeFileSync(join(pkg, 'package.json'), JSON.stringify(pj, null, 2) + '\n');
   cpSync(join(root, 'LICENSE'), join(pkg, 'LICENSE'));
   cpSync(join(root, 'NOTICE'), join(pkg, 'NOTICE'));
+  cpSync(join(root, 'THIRD-PARTY-NOTICES.md'), join(pkg, 'THIRD-PARTY-NOTICES.md'));
   cpSync(join(root, 'CHANGES-FROM-UPSTREAM.md'), join(pkg, 'CHANGES-FROM-UPSTREAM.md'));
   cpSync(join(here, 'PACKAGE_README.md'), join(pkg, 'README.md'));
 

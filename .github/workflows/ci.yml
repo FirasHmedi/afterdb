@@ -4,8 +4,7 @@ name: CI
 # by hand: the apps run on Android emulators and the iOS builds and simulator run.
 # The packages are built once (job packages) and the exact same tarballs are used by the android, expo-android and
 # ios jobs.
-# iOS runs on macOS runners, which cost 10x the minutes of a private repository: it only runs when started by hand
-# (Actions tab) until the repository is public.
+# macOS minutes are limited: iOS runs only when started by hand (Actions tab).
 on:
   push:
     branches: [main]
@@ -21,7 +20,7 @@ on:
         type: boolean
         default: true
       ios_set:
-        description: 'iOS jobs: min = none on Xcode 26.4 + dynamic on the newest Xcode (2 macOS jobs, for a private repo); all = 4 jobs'
+        description: 'iOS jobs: min = none on Xcode 26.4 + dynamic on the newest Xcode (2 macOS jobs); all = 4 jobs'
         type: choice
         options: [min, all]
         default: min
@@ -103,8 +102,7 @@ jobs:
           name=$(node -p 'require("./node_modules/realm/package.json").name')
           [ "$name" = "@pomwik/afterdb" ] || { echo "::error::converter tests would run on $name, not @pomwik/afterdb"; exit 1; }
           npm test
-      # shared with the android, expo-android and ios jobs (a cache, not an artifact: artifact storage is small on a
-      # private repo)
+      # shared with the android, expo-android and ios jobs (a cache, not an artifact: artifact storage is limited)
       - name: Share the packages
         uses: actions/cache/save@v6
         with:
@@ -215,7 +213,7 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
       - name: Self-check on the emulator
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: ${{ matrix.api }}
           target: ${{ matrix.target }}
@@ -307,7 +305,7 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
       - name: Self-check on the emulator
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: 36
           target: google_apis
@@ -333,8 +331,8 @@ jobs:
     timeout-minutes: 90
     strategy:
       fail-fast: false
-      # min (default while the repository is private, macOS minutes count 10x): the brief's Xcode 26.4 without
-      # frameworks, and dynamic frameworks (realm/realm-js#7157) on the newest Xcode. all: 4 jobs.
+      # min (default, macOS minutes are limited): Xcode 26.4, the oldest supported, without frameworks, and dynamic
+      # frameworks (realm/realm-js#7157) on the newest Xcode. all: 4 jobs.
       matrix:
         include: ${{ fromJSON(inputs.ios_set == 'all' && '[{"frameworks":"none","xcode":"26.4"},{"frameworks":"none","xcode":"newest"},{"frameworks":"static","xcode":"newest"},{"frameworks":"dynamic","xcode":"newest"}]' || '[{"frameworks":"none","xcode":"26.4"},{"frameworks":"dynamic","xcode":"newest"}]') }}
     name: ios (frameworks ${{ matrix.frameworks }}, Xcode ${{ matrix.xcode }})

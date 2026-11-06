@@ -1,4 +1,4 @@
-# Releasing (done by Firas only)
+# Releasing (maintainers)
 
 Packages: `@pomwik/afterdb` 20.3.0 (from `realm@20.2.0`) and `@pomwik/afterdb-react` 0.20.1 (from
 `@realm/react@0.20.0`). `npm run build` writes `bridge/out/pomwik-afterdb-20.3.0.tgz` and
@@ -36,8 +36,8 @@ and `react/build.mjs`.
    - `repository.url` in each `package.json` matches the GitHub repository of the workflow: `bridge/build.mjs` writes
      `git+https://github.com/FirasHmedi/afterdb.git` in both packages;
    - **the repository must be public**: « Provenance generation is not supported for private repositories, even
-     when publishing public packages » (docs.npmjs.com/trusted-publishers). FirasHmedi/afterdb is private today:
-     make it public before the release, or publish without `--provenance`.
+     when publishing public packages » (docs.npmjs.com/trusted-publishers). From a private repository, publish
+     without `--provenance`.
 
    No release workflow exists yet: it would build OpenSSL and the packages as the CI does, then run the two
    commands above in the same job.

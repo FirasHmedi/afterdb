@@ -17,6 +17,8 @@ function assertMetadata(pj) {
   assert.equal(pj.homepage, REPO);
   assert.deepEqual(pj.repository, { type: 'git', url: `git+${REPO}.git` });
   assert.deepEqual(pj.bugs, { url: `${REPO}/issues` });
+  // SPDX identifier (upstream realm writes apache-2.0, which npm does not accept as SPDX)
+  assert.equal(pj.license, 'Apache-2.0');
   assert.ok(pj.description.includes('Realm®'));
   assert.doesNotMatch(pj.description.slice(0, pj.description.indexOf('Realm®')), /realm/i, 'Realm® at the first mention');
   assert.match(pj.description, /Not affiliated with or endorsed by MongoDB, Inc\.$/);
@@ -76,17 +78,74 @@ test('package.json: no install-time script, download or analytics', () => {
   assert.ok(!existsSync(join(pkg, 'scripts/submit-analytics.js')));
 });
 
-test('licence files: LICENSE, NOTICE, CHANGES-FROM-UPSTREAM.md, trademark notice', () => {
-  for (const f of ['LICENSE', 'NOTICE', 'CHANGES-FROM-UPSTREAM.md', 'checksums.txt']) assert.ok(existsSync(join(pkg, f)), f);
+test('licence files: LICENSE, NOTICE, THIRD-PARTY-NOTICES.md, CHANGES-FROM-UPSTREAM.md, trademark notice', () => {
+  const pj = JSON.parse(read('package.json'));
+  for (const f of ['LICENSE', 'NOTICE', 'THIRD-PARTY-NOTICES.md', 'CHANGES-FROM-UPSTREAM.md', 'checksums.txt']) {
+    assert.ok(existsSync(join(pkg, f)), f);
+    assert.ok(pj.files.includes(f), `${f} not in package.json files`);
+  }
   assert.match(read('NOTICE'), /not affiliated with, sponsored by or endorsed by MongoDB/);
   assert.match(read('README.md'), /not affiliated with or endorsed by MongoDB/);
   assert.match(read('LICENSE'), /Apache License/);
   // Apache-2.0 §4(b): the replaced README says so; Realm® at the first mention in the README and the list of changes
-  assert.match(read('README.md'), /^Modified by Pomwik, 2026: this file replaces the upstream README/m);
+  assert.match(read('README.md'), /^Modified by Pomwik \(Firas Hmedi\), 2026: this file replaces the upstream README/m);
+  assert.match(read('README.md'), /see THIRD-PARTY-NOTICES\.md/);
   const changes = read('CHANGES-FROM-UPSTREAM.md');
   for (const text of [read('README.md'), changes]) assert.equal(text.indexOf('Realm'), text.indexOf('Realm®'));
   assert.ok(changes.includes('Realm® is a trademark of MongoDB, Inc. This project is independent and not affiliated with or endorsed by MongoDB.'));
   assert.match(changes, /`include\.cmake` that is upstream's file, byte-identical to the one in realm's `openssl-3\.3\.1` archives/);
+  assert.match(changes, /`license`: `Apache-2\.0` instead of upstream's `apache-2\.0`/);
+  assert.match(changes, /the iOS pod `RealmJS`, the Android namespace `io\.realm\.react` and the native library `librealm\.so` keep their upstream names/);
+});
+
+test('NOTICE: one copyright holder, third-party notices, OpenSSL in the Android archives and the Linux Node binaries', () => {
+  const notice = read('NOTICE');
+  // the shipped files are the repository's own
+  assert.equal(notice, readFileSync(join(root, 'NOTICE'), 'utf8'));
+  assert.equal(read('THIRD-PARTY-NOTICES.md'), readFileSync(join(root, 'THIRD-PARTY-NOTICES.md'), 'utf8'));
+  assert.match(notice, /^afterdb\nCopyright 2026 Pomwik \(Firas Hmedi\)\n/);
+  assert.equal(notice.match(/^Copyright /gm).length, 1);
+  assert.match(notice, /THIRD-PARTY-NOTICES\.md/);
+  assert.match(notice, new RegExp(`bundles OpenSSL ${OPENSSL.replace(/\./g, '\\.')}`));
+  assert.match(notice.replace(/\s+/g, ' '), /Node binaries for linux-x64 and linux-arm64 \(prebuilds\/node\/linux-\*\/realm\.node\) statically link OpenSSL 3\.x \(3\.3\.1/);
+  // what the NOTICE says about the Node binaries holds: OpenSSL 3 (its « Default Provider ») and its version string
+  // are inside the Linux binaries only
+  for (const t of NODE_TARGETS) {
+    const bin = readFileSync(join(pkg, 'prebuilds/node', t, 'realm.node'));
+    const linux = t.startsWith('linux-');
+    assert.equal(bin.includes('OpenSSL Default Provider'), linux, t);
+    assert.equal(bin.includes(Buffer.from('\x003.3.1\x00', 'latin1')), linux, t);
+  }
+});
+
+test('THIRD-PARTY-NOTICES.md: every external component of the shipped realm-core headers, with its licence text', () => {
+  const tpn = read('THIRD-PARTY-NOTICES.md');
+  // one entry per folder under Headers/external/ in every xcframework slice (and under include/external/ on Android)
+  const xc = join(pkg, 'prebuilds/apple/realm-core.xcframework');
+  const external = new Set();
+  for (const slice of readdirSync(xc).filter((d) => existsSync(join(xc, d, 'Headers/external')))) for (const d of readdirSync(join(xc, slice, 'Headers/external'))) external.add(d);
+  for (const abi of Object.keys(ANDROID_ABIS)) for (const d of readdirSync(join(pkg, 'prebuilds/android', abi, 'include/external'))) external.add(d);
+  assert.deepEqual([...external].sort(), ['IntelRDFPMathLib20U2', 'bson', 'json', 'jsonsl', 'mpark', 's2', 'sha-1', 'sha-2']);
+  for (const d of external) assert.ok(tpn.includes(`(\`${d}\``), `${d} not listed`);
+  // the copyright lines and licence texts that BSD, MIT, BSL, ISC and the Aladdin licence require to be reproduced
+  for (const text of [
+    'Copyright (c) 2018, Intel Corp.',
+    'Neither the name of Intel Corporation nor the names of its contributors',
+    'Copyright (c) 1996, 1998 by Internet Software Consortium.',
+    'Portions Copyright (c) 1995 by International Business Machines, Inc.',
+    'Copyright (C) 1999, 2002 Aladdin Enterprises.  All rights reserved.',
+    'Copyright (c) 2012-2015 M. Nunberg',
+    'Copyright (c) 2013-2022 Niels Lohmann',
+    'Copyright Michael Park, 2015-2017',
+    'Boost Software License - Version 1.0',
+    'As a special exception, you may create a larger work that contains',
+    'Copyright (c) 2017 [Node.js API collaborators]',
+    'The above copyright notice and this permission notice shall be included in all',
+  ]) assert.ok(tpn.includes(text), text);
+  // the realm-core version named in the file is the one in the shipped headers
+  const v = read('prebuilds/apple/realm-core.xcframework/ios-arm64/Headers/realm/version_numbers.hpp').match(/REALM_VERSION_STRING "([^"]+)"/)[1];
+  assert.equal(v, '20.1.0');
+  assert.ok(tpn.includes(`realm-core engine, version ${v}`));
 });
 
 test('README of the package: only what was run is claimed as tested', () => {
@@ -104,7 +163,7 @@ test('Node: one binary per platform, loaded by platform', () => {
   for (const t of NODE_TARGETS) assert.ok(existsSync(join(pkg, 'prebuilds/node', t, 'realm.node')), t);
   const binding = read('dist/platform/node/binding.js');
   assert.match(binding, /prebuilds\/node\/\$\{process\.platform\}-\$\{process\.arch\}\/realm\.node/);
-  assert.match(binding, /Modified by Pomwik, 2026/);
+  assert.match(binding, /Modified by Pomwik \(Firas Hmedi\), 2026/);
   // binding.js was the only user of the "#realm.node" subpath import: the entry is gone and nothing refers to it
   assert.equal(JSON.parse(read('package.json')).imports, undefined);
   assert.deepEqual(walk(join(pkg, 'dist')).filter((f) => readFileSync(f, 'utf8').includes('#realm.node')), []);
@@ -123,7 +182,7 @@ test('iOS: podspec uses install_modules_dependencies (realm/realm-js#7157)', () 
   assert.match(podspec, /'HEADER_SEARCH_PATHS' => '"\$\{PODS_TARGET_SRCROOT\}\/bindgen\/vendor\/realm-core\/bindgen\/src\/"',/);
   // the stale upstream comment about Sync went with the define, and both changes carry the notice
   assert.doesNotMatch(podspec, /compiled with Sync enabled/);
-  assert.match(podspec, /# Modified by Pomwik, 2026[^\n]*REALM_ENABLE_SYNC=1 removed[^\n]*\n\s*'GCC_PREPROCESSOR_DEFINITIONS' => '\$\(inherited\)',\n/);
+  assert.match(podspec, /# Modified by Pomwik \(Firas Hmedi\), 2026[^\n]*REALM_ENABLE_SYNC=1 removed[^\n]*\n\s*'GCC_PREPROCESSOR_DEFINITIONS' => '\$\(inherited\)',\n/);
 });
 
 test('iOS: podspec minimum iOS version is React Native\'s, not 9.0', () => {
@@ -131,7 +190,7 @@ test('iOS: podspec minimum iOS version is React Native\'s, not 9.0', () => {
   assert.doesNotMatch(podspec, /'9\.0'/);
   assert.match(
     podspec,
-    new RegExp(`# Modified by Pomwik, 2026[^\\n]*\\n  s\\.platform += :ios, \\(respond_to\\?\\(:min_ios_version_supported, true\\) \\? min_ios_version_supported : '${IOS_FALLBACK_MIN.replace('.', '\\.')}'\\)\\n`),
+    new RegExp(`# Modified by Pomwik \\(Firas Hmedi\\), 2026[^\\n]*\\n  s\\.platform += :ios, \\(respond_to\\?\\(:min_ios_version_supported, true\\) \\? min_ios_version_supported : '${IOS_FALLBACK_MIN.replace('.', '\\.')}'\\)\\n`),
   );
   assert.equal(IOS_FALLBACK_MIN, '15.1');
 });
@@ -180,16 +239,17 @@ puts JSON.generate($spec.attrs, ascii_only: true)
   assert.equal(rn.summary, DESCRIPTION);
   assert.deepEqual(rn.authors, { name: 'Pomwik', email: 'hello@pomwik.com', url: 'https://pomwik.com' });
   assert.equal(rn.homepage, 'https://github.com/FirasHmedi/afterdb');
+  assert.equal(rn.license, 'Apache-2.0');
   assert.equal(rn.pod_target_xcconfig.GCC_PREPROCESSOR_DEFINITIONS, '$(inherited)');
   rmSync(dir, { recursive: true, force: true });
 });
 
 test('Android: consumer ProGuard rules keep the binding classes the native code looks up (R8 in release builds)', () => {
   const gradle = read('binding/android/build.gradle');
-  assert.match(gradle, /\n    defaultConfig \{\n        \/\/ Modified by Pomwik, 2026[^\n]*\n        consumerProguardFiles 'consumer-rules\.pro'\n/);
+  assert.match(gradle, /\n    defaultConfig \{\n        \/\/ Modified by Pomwik \(Firas Hmedi\), 2026[^\n]*\n        consumerProguardFiles 'consumer-rules\.pro'\n/);
   const rules = read('binding/android/consumer-rules.pro');
   assert.match(rules, /^-keep class io\.realm\.react\.\*\* \{ \*; \}$/m);
-  assert.match(rules, /Modified by Pomwik, 2026/);
+  assert.match(rules, /Modified by Pomwik \(Firas Hmedi\), 2026/);
   // the class that JNI_OnLoad looks up by name must be inside the kept package
   assert.ok(existsSync(join(pkg, 'binding/android/src/main/java/io/realm/react/util/SSLHelper.java')));
 });
@@ -197,7 +257,7 @@ test('Android: consumer ProGuard rules keep the binding classes the native code 
 test('Android: librealm.so is built with the app\'s NDK (rootProject.ext.ndkVersion) when it sets one', () => {
   const gradle = read('binding/android/build.gradle');
   const android = gradle.slice(gradle.indexOf('\nandroid {'), gradle.indexOf('\nproject.dependencies'));
-  assert.match(android, /\n    \/\/ Modified by Pomwik, 2026[^\n]*\n    if \(rootProject\.hasProperty\('ndkVersion'\)\) \{\n        ndkVersion rootProject\.ext\.ndkVersion\n    \}\n/);
+  assert.match(android, /\n    \/\/ Modified by Pomwik \(Firas Hmedi\), 2026[^\n]*\n    if \(rootProject\.hasProperty\('ndkVersion'\)\) \{\n        ndkVersion rootProject\.ext\.ndkVersion\n    \}\n/);
   // set only inside that condition: without it, AGP keeps its default NDK
   assert.equal(gradle.match(/^\s*ndkVersion\b/gm).length, 1);
   assert.equal(gradle.match(/^\s*ndkPath\b/gm), null);
@@ -351,14 +411,18 @@ test('afterdb-react: metadata, and a NOTICE without OpenSSL (the package ships n
   assert.equal(pj.files.filter((f) => f === 'LICENSE').length, 1);
   for (const f of ['NOTICE', 'CHANGES-FROM-UPSTREAM.md']) assert.ok(pj.files.includes(f), f);
   const notice = readFileSync(join(dir, 'package/NOTICE'), 'utf8');
-  assert.match(notice, /^afterdb-react\n/);
+  assert.match(notice, /^afterdb-react\nCopyright 2026 Pomwik \(Firas Hmedi\)\n/);
+  assert.equal(notice.match(/^Copyright /gm).length, 1);
   assert.match(notice, /not affiliated with, sponsored by or endorsed by MongoDB/);
   assert.doesNotMatch(notice, /OpenSSL/);
   assert.equal(walk(join(dir, 'package')).filter((f) => /openssl/i.test(f)).length, 0);
+  // no prebuilt binary in this package, so no THIRD-PARTY-NOTICES.md either
+  assert.ok(!existsSync(join(dir, 'package/THIRD-PARTY-NOTICES.md')));
+  assert.doesNotMatch(notice, /THIRD-PARTY/);
   assert.match(read('NOTICE'), /OpenSSL 3\.5\.9/, 'the realm package does ship OpenSSL');
   const readme = readFileSync(join(dir, 'package/README.md'), 'utf8');
   assert.match(readme, /^# @pomwik\/afterdb-react\n/);
-  assert.match(readme, /^Modified by Pomwik, 2026: this file replaces the upstream README/m);
+  assert.match(readme, /^Modified by Pomwik \(Firas Hmedi\), 2026: this file replaces the upstream README/m);
   assert.equal(readme.indexOf('Realm'), readme.indexOf('Realm®'));
 });
 

@@ -22,18 +22,21 @@ unchanged.
 - Android, React Native 0.88.1: Debug and release builds for the 4 ABIs; the app runs on Android 7, 11 and 16
   emulators, including one with 16 KB memory pages, and keeps its data after a restart.
 - Android, React Native 0.86.3 and 0.87.1, and Expo SDK 56, 57 and 58: release builds run on an Android 16
-  emulator with 16 KB pages. Release builds with R8 (Expo 58's default) work: the package ships its keep rules.
+  emulator with 16 KB pages (React Native 0.86.3 and 0.87.1 rerun with this package, `librealm.so` built with the
+  app's NDK). Release builds with R8 (Expo 58's default) work: the package ships its keep rules.
 - iOS, React Native 0.88.1, Xcode 26.4.1 and 26.6: on the simulator, the app runs and keeps its data after a
   restart (Xcode 26.6: static frameworks, dynamic frameworks and no frameworks; Xcode 26.4.1: no frameworks).
   Device builds succeed (without code signing).
-- Node 22 (macOS arm64, Linux x64): offline install, open, write, query, encrypted realm; realm-js's own Node
-  integration tests give the same results as with realm@20.2.0.
+- Node 22 (macOS arm64, Linux x64): offline install, open, write, query, encrypted realm.
+- realm-js's own test suites, compared with realm@20.2.0 on macOS arm64 only: Node integration tests, 645 tests,
+  identical results test by test; `@realm/react`: same results in 35 of 36 runs (one run froze under machine load).
 
 Not tested yet: real devices, and iOS with React Native 0.86/0.87 or Expo.
 
 Not supported: Device Sync, the old React Native architecture, bugs inside realm-core.
 
 Realm® is a trademark of MongoDB, Inc. This project is independent and not affiliated with or endorsed by MongoDB.
-Licence: Apache-2.0 (see LICENSE and NOTICE).
+Licence: Apache-2.0 (see LICENSE and NOTICE). The prebuilt realm-core engine contains third-party code under other
+licences: see THIRD-PARTY-NOTICES.md.
 
-Modified by Pomwik, 2026: this file replaces the upstream README (see CHANGES-FROM-UPSTREAM.md).
+Modified by Pomwik (Firas Hmedi), 2026: this file replaces the upstream README (see CHANGES-FROM-UPSTREAM.md).

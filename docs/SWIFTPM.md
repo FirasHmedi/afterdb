@@ -8,4 +8,4 @@ Plan: a `Package.swift` at the package root with
   and flags as `RealmJS.podspec`, depending on the React Native SwiftPM products that provide JSI and TurboModules;
 - the `PrivacyInfo.xcprivacy` resource.
 
-Effort estimate: 16–40 h, mostly matching React Native's own SwiftPM layout once 0.89 ships.
+Most of the work is matching React Native's own SwiftPM layout once 0.89 ships.

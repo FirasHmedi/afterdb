@@ -24,7 +24,7 @@ const DOCUMENTED_CHANGED = new Set([
   ...SLICES.map((s) => `prebuilds/apple/realm-core.xcframework/${s}/Headers/external/s2/base/macros.h`),
 ]);
 const DOCUMENTED_REMOVED = new Set(['binding.gyp', 'scripts/submit-analytics.js', 'dist/scripts/submit-analytics.js', 'dist/scripts/submit-analytics.js.map', 'dist/scripts/submit-analytics.d.ts']);
-const DOCUMENTED_ADDED = (f) => /^prebuilds\/node\/(darwin-arm64|darwin-x64|linux-x64|linux-arm64|win32-x64)\/realm\.node$/.test(f) || /^prebuilds\/android\/[^/]+\/deps\/openssl-3\.5\.9-[a-z0-9]+-android\.tar\.gz$/.test(f) || ['LICENSE', 'NOTICE', 'CHANGES-FROM-UPSTREAM.md', 'checksums.txt', 'binding/android/consumer-rules.pro'].includes(f);
+const DOCUMENTED_ADDED = (f) => /^prebuilds\/node\/(darwin-arm64|darwin-x64|linux-x64|linux-arm64|win32-x64)\/realm\.node$/.test(f) || /^prebuilds\/android\/[^/]+\/deps\/openssl-3\.5\.9-[a-z0-9]+-android\.tar\.gz$/.test(f) || ['LICENSE', 'NOTICE', 'THIRD-PARTY-NOTICES.md', 'CHANGES-FROM-UPSTREAM.md', 'checksums.txt', 'binding/android/consumer-rules.pro'].includes(f);
 
 test('only the documented files are changed, removed or added', () => {
   const a = new Set(walk(upPkg).map((f) => relative(upPkg, f)));
@@ -43,7 +43,7 @@ test('every changed text file carries the « Modified by Pomwik » notice (Apach
     if (f === 'README.md') continue; // replaced
     const t = readFileSync(join(pkg, f), 'utf8');
     if (f === 'package.json') assert.ok(JSON.parse(t).afterdb?.upstream);
-    else assert.match(t, /Modified by Pomwik, 2026/, f);
+    else assert.match(t, /Modified by Pomwik \(Firas Hmedi\), 2026/, f);
   }
 });
 

@@ -1,5 +1,5 @@
 {
-  "name": "keelstore-workspace",
+  "name": "afterdb-workspace",
   "private": true,
   "type": "module",
   "scripts": {

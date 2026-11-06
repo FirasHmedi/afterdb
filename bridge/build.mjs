@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Builds the keelstore package: the official realm@20.2.0 npm tarball (Apache-2.0), verified by its npm
+// Builds the afterdb package: the official realm@20.2.0 npm tarball (Apache-2.0), verified by its npm
 // integrity hash, with a few patches that keep it building on current React Native, Expo and Xcode.
 // The prebuilt realm-core engine is reused as is: nothing here recompiles C++.
 //
@@ -13,8 +13,7 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
 export const UPSTREAM = { name: 'realm', version: '20.2.0', integrity: 'sha512-xkfczMrxnZK1KlJ5JBWGMe2Cs48+p1D8T9r8TO6FrZhnm2KUUhBJPOpOIoJ4h1O20fCxlfJ2pIg3mplJTUgF6g==' };
-/** Placeholder name and version until Firas picks the final name (plan, part C §2). */
-export const NAME = '@pomwik/keelstore';
+export const NAME = '@pomwik/afterdb';
 export const VERSION = '20.3.0';
 const CACHE = join(here, '.cache');
 const out = process.argv.includes('--out') ? process.argv[process.argv.indexOf('--out') + 1] : join(here, 'out');
@@ -37,8 +36,11 @@ const NODE_URL = (t) => `https://static.realm.io/realm-js-prebuilds/${UPSTREAM.v
 export const ANDROID_ABIS = { 'arm64-v8a': 'arm64', 'armeabi-v7a': 'arm', x86: 'x86', x86_64: 'x64' };
 const UPSTREAM_OPENSSL = '3.3.1';
 export const OPENSSL = '3.5.9';
+/** Minimum iOS version of the podspec when React Native does not define min_ios_version_supported */
+export const IOS_FALLBACK_MIN = '15.1';
 
 const sha256 = (buf) => createHash('sha256').update(buf).digest('hex');
+const walk = (dir) => readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)]));
 
 /** Downloads once into the cache; the SHA-256 is checked both after download and when the cached copy is reused. */
 async function download(url, file, expected) {
@@ -68,6 +70,16 @@ function patch(file, from, to, times = 1) {
 
 const MARK = 'Modified by Pomwik, 2026, see CHANGES-FROM-UPSTREAM.md';
 
+export const DESCRIPTION =
+  'Independent, maintained fork of the open-source Realm® JavaScript SDK v20 (realm-js, Apache-2.0): local database, no sync, with build fixes for current React Native and Xcode. Not affiliated with or endorsed by MongoDB, Inc.';
+/** package.json fields shared by both packages (replace upstream's MongoDB author, homepage, repository and bugs) */
+export const PROJECT = {
+  author: { name: 'Pomwik', email: 'hello@pomwik.com', url: 'https://pomwik.com' },
+  homepage: 'https://github.com/FirasHmedi/afterdb',
+  repository: { type: 'git', url: 'git+https://github.com/FirasHmedi/afterdb.git' },
+  bugs: { url: 'https://github.com/FirasHmedi/afterdb/issues' },
+};
+
 export async function build() {
   // 1. Official tarball, checked against the integrity hash published by the npm registry
   const meta = await (await fetch(`https://registry.npmjs.org/${UPSTREAM.name}/${UPSTREAM.version}`)).json();
@@ -94,15 +106,16 @@ export async function build() {
     delete pj.dependencies[d];
   }
   delete pj.binary;
+  if (!pj.exports['./scripts/submit-analytics']) throw new Error("package.json: exports['./scripts/submit-analytics'] not found upstream");
   delete pj.exports['./scripts/submit-analytics'];
+  if (!pj.keywords?.includes('mongodb')) throw new Error('package.json: keyword mongodb not found upstream');
   Object.assign(pj, {
     name: NAME,
     version: VERSION,
-    description: 'Independent, maintained fork of the open-source realm-js SDK v20 (Apache-2.0, local database) for current React Native, Expo and Xcode. Not affiliated with MongoDB, Inc.',
-    homepage: 'https://github.com/FirasHmedi/keelstore',
-    repository: { type: 'git', url: 'git+https://github.com/FirasHmedi/keelstore.git' },
-    bugs: { url: 'https://github.com/FirasHmedi/keelstore/issues' },
-    keelstore: { upstream: `${UPSTREAM.name}@${UPSTREAM.version}`, upstreamIntegrity: meta.dist.integrity },
+    description: DESCRIPTION,
+    keywords: pj.keywords.filter((k) => k !== 'mongodb'),
+    ...PROJECT,
+    afterdb: { upstream: `${UPSTREAM.name}@${UPSTREAM.version}`, upstreamIntegrity: meta.dist.integrity },
   });
   // binding.gyp only rebuilds the Node binary from source (shipped prebuilt here): without an install script npm
   // would run node-gyp on it automatically, hence gypfile: false and no binding.gyp in the package
@@ -140,6 +153,13 @@ const nativeModule = (() => {
 })();`,
   );
 
+  // 3b. binding.js was the only user of the "#realm.node" subpath import (checked below): the dead entry goes too
+  const users = walk(pkg).filter((f) => !f.startsWith(join(pkg, 'prebuilds')) && /\.(c|m)?js$|\.ts$|\.map$/.test(f) && readFileSync(f, 'utf8').includes('#realm.node'));
+  if (users.length) throw new Error(`"#realm.node" still used by ${users.join(', ')}`);
+  if (pj.imports?.['#realm.node'] !== './prebuilds/node/realm.node') throw new Error("package.json: imports['#realm.node'] not found upstream");
+  delete pj.imports['#realm.node'];
+  if (!Object.keys(pj.imports).length) delete pj.imports;
+
   // 4. iOS: link React Native >= 0.86 pods built as frameworks (realm/realm-js#7157)
   patch(
     join(pkg, 'RealmJS.podspec'),
@@ -155,11 +175,14 @@ const nativeModule = (() => {
 `,
   );
 
-  // 4b. v20 has no Device Sync: REALM_ENABLE_SYNC=1 is a leftover that no shipped header or binding source reads
+  // 4b. v20 has no Device Sync: REALM_ENABLE_SYNC=1 is a leftover that no shipped header or binding source reads.
+  //     The upstream comment above it (« compiled with Sync enabled ») is replaced too.
   patch(
     join(pkg, 'RealmJS.podspec'),
-    "'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited) REALM_ENABLE_SYNC=1',",
-    "'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited)', # Modified by Pomwik, 2026: REALM_ENABLE_SYNC=1 removed (no sync in v20, read by nothing)",
+    `                                # Signaling to headers that Realm was compiled with Sync enabled
+                                'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited) REALM_ENABLE_SYNC=1',`,
+    `                                # ${MARK}: no define of our own; REALM_ENABLE_SYNC=1 removed (v20 has no sync, nothing reads it)
+                                'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited)',`,
   );
 
   // 4c. install_modules_dependencies interpolates HEADER_SEARCH_PATHS into a string: an array would become
@@ -172,6 +195,29 @@ const nativeModule = (() => {
                                 ]`,
     `                                # ${MARK}: a string, not an array (install_modules_dependencies appends to it as a string)
                                 'HEADER_SEARCH_PATHS' => '"\${PODS_TARGET_SRCROOT}/bindgen/vendor/realm-core/bindgen/src/"',`,
+  );
+
+  // 4d. Minimum iOS version: upstream says 9.0, below anything React Native >= 0.71 supports. Use React Native's own
+  //     minimum (min_ios_version_supported, defined by its react_native_pods.rb) and 15.1 when it is not defined.
+  patch(
+    join(pkg, 'RealmJS.podspec'),
+    "  s.platform               = :ios, '9.0'\n",
+    `  # ${MARK}: React Native's minimum iOS version instead of 9.0
+  s.platform               = :ios, (respond_to?(:min_ios_version_supported, true) ? min_ios_version_supported : '${IOS_FALLBACK_MIN}')
+`,
+  );
+
+  // 4e. Android: build librealm.so with the app's NDK, like other React Native libraries. Upstream sets no
+  //     ndkVersion, so AGP used its own default NDK (27.0 with AGP 8.12, 28.2 with AGP 9.2) instead of the app's.
+  patch(
+    join(pkg, 'binding/android/build.gradle'),
+    "    buildToolsVersion rootProject.hasProperty('buildToolsVersion') ? rootProject.buildToolsVersion : '28.0.3'\n",
+    `    buildToolsVersion rootProject.hasProperty('buildToolsVersion') ? rootProject.buildToolsVersion : '28.0.3'
+    // ${MARK}: the app's NDK (rootProject.ext.ndkVersion) when it sets one, otherwise AGP's default
+    if (rootProject.hasProperty('ndkVersion')) {
+        ndkVersion rootProject.ext.ndkVersion
+    }
+`,
   );
 
   // 5. Xcode 26.4: libc++ forbids specializing std::is_pod, which the shipped s2 headers did (realm/realm-js#7115).
@@ -209,16 +255,18 @@ typedef int Dummy_Type_For_PROPAGATE_POD_FROM_TEMPLATE_ARGUMENT`,
     const name = `openssl-${OPENSSL}-${arch}-android.tar.gz`;
     const built = join(CACHE, 'openssl', name);
     if (!existsSync(built)) throw new Error(`${built} missing: run bridge/openssl/build-openssl.sh ${OPENSSL}`);
-    // Inside a function, CMAKE_CURRENT_LIST_DIR is the caller's folder: record this file's folder when it is included
+    const buf = readFileSync(built);
+    // Inside a function, CMAKE_CURRENT_LIST_DIR is the caller's folder: record this file's folder when it is included.
+    // The SHA-256 of the archive is recorded too: CMake checks it before extracting the archive (brief item F5).
     patch(
       join(pkg, 'prebuilds/android', abi, 'share/cmake/Realm/AcquireRealmDependency.cmake'),
       'function(realm_acquire_dependency dep_name dep_version out_dep_cmake)',
-      `# ${MARK}: folder of the OpenSSL archives shipped in the package
-set(KEEL_BUNDLED_DEPS_DIR "\${CMAKE_CURRENT_LIST_DIR}/../../../deps")
+      `# ${MARK}: folder of the OpenSSL archives shipped in the package, and the SHA-256 of each
+set(AFTERDB_BUNDLED_DEPS_DIR "\${CMAKE_CURRENT_LIST_DIR}/../../../deps")
+set(AFTERDB_BUNDLED_SHA256_${name} "${sha256(buf)}")
 
 function(realm_acquire_dependency dep_name dep_version out_dep_cmake)`,
     );
-    const buf = readFileSync(built);
     mkdirSync(join(pkg, 'prebuilds/android', abi, 'deps'), { recursive: true });
     writeFileSync(join(pkg, 'prebuilds/android', abi, 'deps', name), buf);
     checksums.push(`${sha256(buf)}  prebuilds/android/${abi}/deps/${name} (built from openssl-${OPENSSL}.tar.gz)`);
@@ -240,11 +288,19 @@ function(realm_acquire_dependency dep_name dep_version out_dep_cmake)`,
             message(FATAL_ERROR "Downloading \${url}... Failed. Status: \${download_status}")
         endif()
 `,
-      `        # ${MARK}: use the copy shipped in the package, download only as a fallback
+      `        # ${MARK}: use the copy shipped in the package once its SHA-256 is checked, download only as a fallback
         set(DEP_FILE_NAME "\${dep_name}-\${dep_version}-\${_target_architecture_\${CMAKE_SYSTEM_NAME}_\${_target_architecture}}-\${_target_platform_name_\${CMAKE_SYSTEM_NAME}}.tar.gz")
-        set(DEP_LOCAL "\${KEEL_BUNDLED_DEPS_DIR}/\${DEP_FILE_NAME}")
+        set(DEP_LOCAL "\${AFTERDB_BUNDLED_DEPS_DIR}/\${DEP_FILE_NAME}")
         if(EXISTS "\${DEP_LOCAL}")
-            message(STATUS "Using bundled \${DEP_LOCAL}")
+            set(DEP_SHA256_EXPECTED "\${AFTERDB_BUNDLED_SHA256_\${DEP_FILE_NAME}}")
+            if("\${DEP_SHA256_EXPECTED}" STREQUAL "")
+                message(FATAL_ERROR "No SHA-256 recorded for the bundled \${DEP_LOCAL}")
+            endif()
+            file(SHA256 "\${DEP_LOCAL}" DEP_SHA256_ACTUAL)
+            if(NOT "\${DEP_SHA256_ACTUAL}" STREQUAL "\${DEP_SHA256_EXPECTED}")
+                message(FATAL_ERROR "SHA-256 mismatch for the bundled \${DEP_LOCAL}: \${DEP_SHA256_ACTUAL}, expected \${DEP_SHA256_EXPECTED}. The package is damaged: reinstall it.")
+            endif()
+            message(STATUS "Using bundled \${DEP_LOCAL} (SHA-256 checked)")
             file(MAKE_DIRECTORY "\${CMAKE_CURRENT_BINARY_DIR}/\${dep_name}-\${dep_version}")
             file(COPY_FILE "\${DEP_LOCAL}" "\${CMAKE_CURRENT_BINARY_DIR}/\${dep_name}-\${dep_version}/\${dep_name}.tar.gz" RESULT copy_result)
             if(NOT copy_result STREQUAL "0")

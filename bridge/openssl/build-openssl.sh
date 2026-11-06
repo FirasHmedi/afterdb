@@ -30,6 +30,14 @@ export ANDROID_NDK_ROOT="$NDK"
 HOST_TAG="$(uname -s | tr '[:upper:]' '[:lower:]')-x86_64"
 export PATH="$NDK/toolchains/llvm/prebuilt/$HOST_TAG/bin:$PATH"
 
+# The archives record no local account: every entry is owned by 0:0, without user or group name.
+# GNU tar (Linux CI) and bsdtar (macOS) spell this differently.
+if tar --version 2>/dev/null | grep -q 'GNU tar'; then
+  TAR_OWNER=(--owner=0 --group=0 --numeric-owner)
+else
+  TAR_OWNER=(--uid 0 --gid 0 --numeric-owner)
+fi
+
 # Source tarball and its published SHA-256 (GitHub release of the OpenSSL project)
 SRC="openssl-$VERSION.tar.gz"
 BASE="https://github.com/openssl/openssl/releases/download/openssl-$VERSION"
@@ -81,6 +89,11 @@ for pair in arm64-v8a:arm64:android-arm64 armeabi-v7a:arm:android-arm x86:x86:an
   done
   tar -xzf "$INCLUDE_CMAKE" -C "$B/pkg" include.cmake
   cp "$B/src/LICENSE.txt" "$B/pkg/LICENSE.txt"
-  tar -czf "$OUT" -C "$B/pkg" .
+  tar "${TAR_OWNER[@]}" -czf "$OUT" -C "$B/pkg" .
+  # Owner of every entry, as listed by tar -tv: GNU tar prints "0/0" in column 2, bsdtar "0 0" in columns 3 and 4
+  OWNERS="$(tar -tvzf "$OUT" | awk '{ if ($2 ~ /\//) print $2; else print $3 "/" $4 }' | sort -u | tr '\n' ' ')"
+  if [ "$OWNERS" != "0/0 " ]; then
+    echo "$OUT: entries owned by $OWNERS, expected 0/0 only"; rm -f "$OUT"; exit 1
+  fi
   echo "built: $OUT"
 done

@@ -1,0 +1,15 @@
+{
+  "expo": {
+    "name": "afterdb Expo 58",
+    "slug": "afterdb-expo-58",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "ios": {
+      "bundleIdentifier": "com.afterdbexample.expo58"
+    },
+    "android": {
+      "package": "com.afterdbexample.expo58",
+      "predictiveBackGestureEnabled": false
+    }
+  }
+}

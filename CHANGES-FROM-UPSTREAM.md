@@ -15,7 +15,8 @@ Every file listed here was modified; text files carry a « Modified by Pomwik, 2
 | `RealmJS.podspec` | `install_modules_dependencies(s)` instead of `s.dependency 'React'` | iOS linking on React Native >= 0.86 with frameworks (realm/realm-js#7157, fix by TPXP, reused with credit) |
 | `RealmJS.podspec` | `REALM_ENABLE_SYNC=1` removed from the preprocessor flags | v20 has no sync; no shipped header or binding source reads it |
 | `prebuilds/apple/realm-core.xcframework/*/Headers/external/s2/base/macros.h` | `DECLARE_POD` and `PROPAGATE_POD_FROM_TEMPLATE_ARGUMENT` no longer specialize `std::is_pod` | Build error on Xcode 26.4 (realm/realm-js#7115) |
-| `prebuilds/android/<abi>/deps/openssl-3.3.1-*.tar.gz` | Added: the upstream OpenSSL archives | The Android build no longer downloads anything |
+| `prebuilds/android/<abi>/deps/openssl-3.5.9-*.tar.gz` | Added: OpenSSL 3.5.9 LTS built from the checksummed OpenSSL source release by `bridge/openssl/build-openssl.sh` (static, no apps, no engines) | The Android build no longer downloads anything, and OpenSSL 3.3 is end-of-life since 2026-04-09 |
+| `prebuilds/android/<abi>/share/cmake/Realm/RealmConfig.cmake` | Acquires OpenSSL 3.5.9 instead of 3.3.1 | Same |
 | `prebuilds/android/<abi>/share/cmake/Realm/AcquireRealmDependency.cmake` | Uses the bundled archive, downloads only as a fallback | Same |
 | `binding.gyp` | Removed | It only rebuilds the Node binary from source; npm would otherwise run node-gyp at install |
 | `README.md`, `LICENSE`, `NOTICE`, `CHANGES-FROM-UPSTREAM.md`, `checksums.txt` | Replaced or added (the upstream tarball has no LICENSE file) | Licence and traceability |

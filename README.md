@@ -25,7 +25,7 @@ Fixes compared with `realm@20.2.0` (details and credits in `CHANGES-FROM-UPSTREA
 - iOS linking on React Native >= 0.86 with frameworks (realm/realm-js#7157, fix by TPXP);
 - Xcode 26.4 `is_pod` build error from a shipped header (#7115);
 - no install-time download and no analytics: Node binaries for 5 platforms are in the package (#7119, #7068, #7126);
-- Android builds no longer download OpenSSL at compile time (#7044);
+- Android builds no longer download OpenSSL at compile time, and ship OpenSSL 3.5.9 LTS instead of the end-of-life 3.3.1 (#7044);
 - `@realm/react` no longer pulls a nested copy of react-native (#7066).
 
 ## Compatibility matrix
@@ -35,8 +35,11 @@ Only what has actually been run is marked as passing. See `docs/TEST-RESULTS.md`
 | Area | Status |
 |---|---|
 | Node 22 (macOS arm64): install offline, open, write, query, encrypted realm | Pass (`npm test`) |
-| Android, React Native 0.88.1, new architecture, Hermes, release build | See `docs/TEST-RESULTS.md` |
-| 16 KB alignment of the example APK | See `docs/TEST-RESULTS.md` |
+| Android, React Native 0.88.1, new architecture, Hermes: release build (arm64-v8a, x86_64) | Pass |
+| Android emulator (Pixel 8, Android 16, 4 KB and **16 KB pages**): write, read, update, live `useQuery`, encrypted realm | Pass |
+| Android release build, all 4 ABIs, OpenSSL 3.5.9 LTS linked | Pass |
+| 16 KB alignment of every 64-bit native library of the example APK | Pass (24/24) |
+| No download from static.realm.io during `npm install` or the Android build | Pass |
 | iOS, Xcode 26.4, React Native 0.88.1 (frameworks none / static / dynamic) | Not run yet (CI job, needs macOS runners) |
 | React Native 0.86 / 0.87, Expo SDK 56–58 | Not run yet |
 

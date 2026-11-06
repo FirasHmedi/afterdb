@@ -31,7 +31,23 @@ function SelfCheck() {
       });
       realm.write(() => realm.objectForPrimaryKey(Task, 1)!.done = true);
       const ok = realm.objects(Task).length === 50 && realm.objects(Task).filtered('done == true').length === 11;
-      setResult(ok ? 'KEELSTORE_SELF_CHECK_OK' : 'KEELSTORE_SELF_CHECK_FAILED');
+      // Encrypted file (64-byte key): uses the bundled OpenSSL on Android
+      const key = new Int8Array(64).map((_, i) => i + 1);
+      const path = 'selfcheck-encrypted.realm';
+      Realm.deleteFile({ path });
+      const enc = new Realm({ schema: [Task], path, encryptionKey: key });
+      enc.write(() => enc.create(Task, { _id: 1, title: 'secret', done: true }));
+      enc.close();
+      const reopened = new Realm({ schema: [Task], path, encryptionKey: key });
+      const encOk = reopened.objectForPrimaryKey(Task, 1)?.title === 'secret';
+      reopened.close();
+      let refused = false;
+      try {
+        new Realm({ schema: [Task], path }).close();
+      } catch {
+        refused = true;
+      }
+      setResult(ok && encOk && refused ? 'KEELSTORE_SELF_CHECK_OK' : `KEELSTORE_SELF_CHECK_FAILED ok=${ok} encrypted=${encOk} refusedWithoutKey=${refused}`);
     } catch (e) {
       setResult(`KEELSTORE_SELF_CHECK_ERROR ${String(e)}`);
     }

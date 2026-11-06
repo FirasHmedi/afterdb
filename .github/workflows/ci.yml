@@ -32,7 +32,9 @@ jobs:
           path: |
             bridge/.cache
             react/.cache
-          key: upstream-${{ hashFiles('bridge/build.mjs', 'react/build.mjs') }}
+          key: upstream-${{ hashFiles('bridge/build.mjs', 'react/build.mjs', 'bridge/openssl/build-openssl.sh') }}
+      - name: OpenSSL 3.5 LTS for Android (cached)
+        run: bridge/openssl/build-openssl.sh
       - run: npm run build
       - run: npm test
       - name: Converter tests
@@ -56,11 +58,13 @@ jobs:
           path: |
             bridge/.cache
             react/.cache
-          key: upstream-${{ hashFiles('bridge/build.mjs', 'react/build.mjs') }}
+          key: upstream-${{ hashFiles('bridge/build.mjs', 'react/build.mjs', 'bridge/openssl/build-openssl.sh') }}
       - uses: actions/cache@v4
         with:
           path: ~/.gradle/caches
           key: gradle-${{ hashFiles('example/android/**/*.gradle*', 'example/package.json') }}
+      - name: OpenSSL 3.5 LTS for Android (cached)
+        run: bridge/openssl/build-openssl.sh
       - run: npm run build
       - name: Install the example app (realm and @realm/react aliased to the keelstore packages)
         working-directory: example
@@ -107,7 +111,9 @@ jobs:
           path: |
             bridge/.cache
             react/.cache
-          key: upstream-${{ hashFiles('bridge/build.mjs', 'react/build.mjs') }}
+          key: upstream-${{ hashFiles('bridge/build.mjs', 'react/build.mjs', 'bridge/openssl/build-openssl.sh') }}
+      - name: OpenSSL 3.5 LTS for Android (cached)
+        run: bridge/openssl/build-openssl.sh
       - run: npm run build
       - working-directory: example
         run: npm install --no-audit --no-fund

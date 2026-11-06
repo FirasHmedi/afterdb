@@ -31,7 +31,7 @@ Read from the official npm tarball `realm@20.2.0` (published 2025-08-11, integri
 
 ## What keelstore changes
 See `CHANGES-FROM-UPSTREAM.md`. In short: no install script, all binaries and OpenSSL bundled, podspec fixed for
-React Native >= 0.86, s2 macros made harmless for Xcode 26.4. realm-core is not rebuilt.
+React Native >= 0.86, s2 macros made harmless for Xcode 26.4, OpenSSL 3.5.9 LTS on Android. realm-core is not rebuilt.
 
 ## Failures reproduced so far
 See `docs/TEST-RESULTS.md`.

@@ -22,10 +22,14 @@ const out = process.argv.includes('--out') ? process.argv[process.argv.indexOf('
 /** Node N-API binaries published by the upstream project; vendored so that installs never download anything. */
 export const NODE_TARGETS = ['darwin-arm64', 'darwin-x64', 'linux-x64', 'linux-arm64', 'win32-x64'];
 const NODE_URL = (t) => `https://static.realm.io/realm-js-prebuilds/${UPSTREAM.version}/realm-v${UPSTREAM.version}-napi-v6-${t}.tar.gz`;
-/** OpenSSL that the Android build used to download at compile time (see AcquireRealmDependency.cmake). */
+/**
+ * OpenSSL for Android. Upstream downloads 3.3.1 (end of life since 2026-04-09) at compile time; we ship 3.5 LTS,
+ * built by bridge/openssl/build-openssl.sh from the checksummed OpenSSL source release.
+ */
 export const ANDROID_ABIS = { 'arm64-v8a': 'arm64', 'armeabi-v7a': 'arm', x86: 'x86', x86_64: 'x64' };
-const OPENSSL = '3.3.1';
-const OPENSSL_URL = (arch) => `https://static.realm.io/downloads/dependencies/openssl/${OPENSSL}/openssl-${OPENSSL}-${arch}-android.tar.gz`;
+const UPSTREAM_OPENSSL = '3.3.1';
+export const OPENSSL = '3.5.9';
+const UPSTREAM_OPENSSL_URL = (arch) => `https://static.realm.io/downloads/dependencies/openssl/${UPSTREAM_OPENSSL}/openssl-${UPSTREAM_OPENSSL}-${arch}-android.tar.gz`;
 
 const sha256 = (buf) => createHash('sha256').update(buf).digest('hex');
 
@@ -174,7 +178,11 @@ typedef int Dummy_Type_For_PROPAGATE_POD_FROM_TEMPLATE_ARGUMENT`,
 
   // 6. Android: OpenSSL is shipped in the package instead of being downloaded at compile time
   for (const [abi, arch] of Object.entries(ANDROID_ABIS)) {
+    // The upstream 3.3.1 archive is still fetched: build-openssl.sh reuses its include.cmake
+    await download(UPSTREAM_OPENSSL_URL(arch), join(CACHE, 'openssl', `openssl-${UPSTREAM_OPENSSL}-${arch}-android.tar.gz`));
     const name = `openssl-${OPENSSL}-${arch}-android.tar.gz`;
+    const built = join(CACHE, 'openssl', name);
+    if (!existsSync(built)) throw new Error(`${built} missing: run bridge/openssl/build-openssl.sh ${OPENSSL}`);
     // Inside a function, CMAKE_CURRENT_LIST_DIR is the caller's folder: record this file's folder when it is included
     patch(
       join(pkg, 'prebuilds/android', abi, 'share/cmake/Realm/AcquireRealmDependency.cmake'),
@@ -184,10 +192,15 @@ set(KEEL_BUNDLED_DEPS_DIR "\${CMAKE_CURRENT_LIST_DIR}/../../../deps")
 
 function(realm_acquire_dependency dep_name dep_version out_dep_cmake)`,
     );
-    const buf = await download(OPENSSL_URL(arch), join(CACHE, 'openssl', name));
+    const buf = readFileSync(built);
     mkdirSync(join(pkg, 'prebuilds/android', abi, 'deps'), { recursive: true });
     writeFileSync(join(pkg, 'prebuilds/android', abi, 'deps', name), buf);
-    checksums.push(`${sha256(buf)}  ${OPENSSL_URL(arch)}`);
+    checksums.push(`${sha256(buf)}  prebuilds/android/${abi}/deps/${name} (built from openssl-${OPENSSL}.tar.gz)`);
+    patch(
+      join(pkg, 'prebuilds/android', abi, 'share/cmake/Realm/RealmConfig.cmake'),
+      `realm_acquire_dependency(openssl ${UPSTREAM_OPENSSL} OPENSSL_CMAKE_INCLUDE_FILE)`,
+      `realm_acquire_dependency(openssl ${OPENSSL} OPENSSL_CMAKE_INCLUDE_FILE) # ${MARK}: OpenSSL 3.5 LTS instead of 3.3.1`,
+    );
     patch(
       join(pkg, 'prebuilds/android', abi, 'share/cmake/Realm/AcquireRealmDependency.cmake'),
       `        set(DEP_URL "https://static.realm.io/downloads/dependencies/\${dep_name}/\${dep_version}/\${dep_name}-\${dep_version}-\${_target_architecture_\${CMAKE_SYSTEM_NAME}_\${_target_architecture}}-\${_target_platform_name_\${CMAKE_SYSTEM_NAME}}.tar.gz")

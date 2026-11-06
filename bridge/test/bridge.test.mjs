@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { ANDROID_ABIS, NAME, NODE_TARGETS, VERSION } from '../build.mjs';
+import { ANDROID_ABIS, NAME, NODE_TARGETS, OPENSSL, VERSION } from '../build.mjs';
 import { NAME as REACT_NAME, VERSION as REACT_VERSION } from '../../react/build.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -86,7 +86,8 @@ test('Android: OpenSSL is bundled for every ABI and used before any download', (
   for (const abi of Object.keys(ANDROID_ABIS)) {
     const deps = readdirSync(join(pkg, 'prebuilds/android', abi, 'deps'));
     assert.equal(deps.length, 1, abi);
-    assert.match(deps[0], /^openssl-3\.3\.1-.*-android\.tar\.gz$/);
+    assert.equal(deps[0], `openssl-${OPENSSL}-${ANDROID_ABIS[abi]}-android.tar.gz`);
+    assert.match(read(`prebuilds/android/${abi}/share/cmake/Realm/RealmConfig.cmake`), new RegExp(`realm_acquire_dependency\\(openssl ${OPENSSL.replace(/\./g, '\\.')} `));
     const cmake = read(`prebuilds/android/${abi}/share/cmake/Realm/AcquireRealmDependency.cmake`);
     assert.ok(cmake.indexOf('if(EXISTS "${DEP_LOCAL}")') < cmake.indexOf('file(DOWNLOAD'), abi);
   }
@@ -97,11 +98,12 @@ test('Android: the CMake script really extracts the bundled OpenSSL (no NDK need
   const share = join(pkg, 'prebuilds/android/arm64-v8a/share/cmake/Realm');
   writeFileSync(
     join(dir, 'check.cmake'),
-    `set(ANDROID ON)\nset(CMAKE_SYSTEM_NAME Android)\nset(CMAKE_ANDROID_ARCH_ABI arm64-v8a)\ninclude("${share}/AcquireRealmDependency.cmake")\nrealm_acquire_dependency(openssl 3.3.1 OUT)\nif(NOT EXISTS "\${OUT}")\n  message(FATAL_ERROR "include.cmake missing: \${OUT}")\nendif()\nmessage(STATUS "OK \${OUT}")\n`,
+    `set(ANDROID ON)\nset(CMAKE_SYSTEM_NAME Android)\nset(CMAKE_ANDROID_ARCH_ABI arm64-v8a)\ninclude("${share}/AcquireRealmDependency.cmake")\nrealm_acquire_dependency(openssl ${OPENSSL} OUT)\nif(NOT EXISTS "\${OUT}")\n  message(FATAL_ERROR "include.cmake missing: \${OUT}")\nendif()\nmessage(STATUS "OK \${OUT}")\n`,
   );
   const log = execFileSync(cmakeBin(), ['-P', join(dir, 'check.cmake')], { cwd: dir, encoding: 'utf8', stdio: 'pipe' });
   assert.ok(existsSync(join(dir, 'openssl/include.cmake')));
   assert.ok(existsSync(join(dir, 'openssl/lib/libcrypto.a')));
+  assert.match(readFileSync(join(dir, 'openssl/include/openssl/opensslv.h'), 'utf8'), new RegExp(`OPENSSL_VERSION_TEXT.*OpenSSL ${OPENSSL.replace(/\./g, '\\.')}`));
   assert.doesNotMatch(log, /Getting https:\/\/static\.realm\.io/);
 });
 

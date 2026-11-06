@@ -1,15 +1,17 @@
 #!/usr/bin/env node
-// Checks that every native library (.so) in an APK or AAB has all its PT_LOAD segments aligned on at least 16 KB,
-// which Google Play requires for app updates from 1 February 2027. Reads the ELF program headers directly.
+// Checks that every 64-bit native library (.so) in an APK or AAB has all its PT_LOAD segments aligned on at least
+// 16 KB, which Google Play requires for app updates from 1 February 2027. 32-bit ABIs (armeabi-v7a, x86) run on
+// 4 KB pages and are only reported, unless --all. Reads the ELF program headers directly.
 //
-// Usage: node scripts/check-16kb.mjs <app.apk|app.aab|dir-with-.so-files>
-// Exit code 1 if a library is not aligned.
+// Usage: node scripts/check-16kb.mjs <app.apk|app.aab|dir-with-.so-files> [--all]
+// Exit code 1 if a required library is not aligned.
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 
 export const PAGE = 16384;
+const ABI_32 = /(^|\/)(armeabi-v7a|x86)\//;
 const PT_LOAD = 1;
 
 /** Smallest p_align of the PT_LOAD segments of an ELF file (32 or 64 bits, little or big endian). */
@@ -56,13 +58,18 @@ if (process.argv[1] && import.meta.url.endsWith(process.argv[1].split('/').pop()
     console.error(`No .so file found in ${input}`);
     process.exit(2);
   }
+  const all = process.argv.includes('--all');
   let bad = 0;
+  let required = 0;
   for (const f of files) {
+    const rel = relative(dir, f);
+    const optional = !all && ABI_32.test(rel);
     const align = loadAlignment(readFileSync(f));
     const ok = align >= PAGE;
-    if (!ok) bad++;
-    console.log(`${ok ? 'OK  ' : 'FAIL'} ${String(align).padStart(6)}  ${relative(dir, f)}`);
+    if (!optional) required++;
+    if (!ok && !optional) bad++;
+    console.log(`${ok ? 'OK  ' : optional ? 'info' : 'FAIL'} ${String(align).padStart(6)}  ${rel}`);
   }
-  console.log(bad ? `\n${bad} of ${files.length} libraries are not 16 KB aligned` : `\nAll ${files.length} libraries are 16 KB aligned`);
+  console.log(bad ? `\n${bad} of ${required} required libraries are not 16 KB aligned` : `\nAll ${required} 64-bit libraries are 16 KB aligned (${files.length - required} 32-bit libraries reported only)`);
   process.exit(bad ? 1 : 0);
 }

@@ -12,3 +12,5 @@ bridge/.cache/
 react/.cache/
 bridge/out/
 react/out/
+example/package-lock.json
+example/android/.kotlin/

@@ -220,6 +220,25 @@ const nativeModule = (() => {
 `,
   );
 
+  // 4f. Android release builds with R8 (Expo SDK 58 turns it on; bare apps with minifyEnabled): native code looks up
+  //     io.realm.react.util.SSLHelper with FindClass, so R8 removed it and the app crashed at start
+  //     (ClassNotFoundException in JNI_OnLoad). Ship consumer rules that keep the binding's Java classes.
+  writeFileSync(
+    join(pkg, 'binding/android/consumer-rules.pro'),
+    `# ${MARK}
+# Kept for R8/ProGuard in the app's release build: the native library looks these classes up by name (JNI FindClass).
+-keep class io.realm.react.** { *; }
+`,
+  );
+  patch(
+    join(pkg, 'binding/android/build.gradle'),
+    "    defaultConfig {\n        minSdkVersion rootProject.hasProperty('minSdkVersion')",
+    `    defaultConfig {
+        // ${MARK}: keep rules applied to the app's release build (R8), see consumer-rules.pro
+        consumerProguardFiles 'consumer-rules.pro'
+        minSdkVersion rootProject.hasProperty('minSdkVersion')`,
+  );
+
   // 5. Xcode 26.4: libc++ forbids specializing std::is_pod, which the shipped s2 headers did (realm/realm-js#7115).
   //    Header-only change: the macros become no-ops (the types stay trivially copyable, nothing else relies on them).
   const xc = join(pkg, 'prebuilds/apple/realm-core.xcframework');

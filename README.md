@@ -1,4 +1,4 @@
-# keelstore (placeholder name)
+# afterdb
 
 An independent, maintained fork of the open-source realm-js SDK v20 (local database, no sync) for apps that use
 Realm® and need current React Native, Expo and Xcode, plus tools to migrate their data to SQLite. Free and open source
@@ -10,15 +10,15 @@ Realm® and need current React Native, Expo and Xcode, plus tools to migrate the
 
 MongoDB deprecated Realm and Device Sync on 30 September 2025. The last `realm` release is 20.2.0 (August 2025) and
 nobody is paid to maintain it any more (realm/realm-js#7094). Apps still ship on it, and each React Native, Expo or
-Xcode upgrade tends to break it. keelstore keeps those apps building while their teams decide whether to stay or move.
+Xcode upgrade tends to break it. afterdb keeps those apps building while their teams decide whether to stay or move.
 
 ## What is in this repository
 
 | Folder | What | Status |
 |---|---|---|
-| `bridge/` | `@pomwik/keelstore`: the official `realm@20.2.0` package, verified, with build fixes (no engine change) | Built and tested |
-| `react/` | `@pomwik/keelstore-react`: `@realm/react@0.20.0` with `react-native` as an optional peer | Built and tested |
-| `converter/` | `keel-convert`: `.realm` → SQLite with per-object verification, and an RQL ↔ SQL differential test | Tested on desktop (Node) |
+| `bridge/` | `@pomwik/afterdb`: the official `realm@20.2.0` package, verified, with build fixes (no engine change) | Built and tested |
+| `react/` | `@pomwik/afterdb-react`: `@realm/react@0.20.0` with `react-native` as an optional peer | Built and tested |
+| `converter/` | `afterdb-convert`: `.realm` → SQLite with per-object verification, and an RQL ↔ SQL differential test | Tested on desktop (Node) |
 | `example/` | React Native 0.88.1 app that uses both packages through npm aliases and runs a self-check | See the matrix |
 | `scripts/check-16kb.mjs` | Checks that every 64-bit `.so` of an APK/AAB is 16 KB aligned (Google Play, 1 Feb 2027), and runs `zipalign -P 16` if found | Tested (`node --test scripts/check-16kb.test.mjs`), run in CI |
 
@@ -48,8 +48,8 @@ green run of the GitHub Actions workflow; "configured in CI" means a job is writ
 
 ```json
 "dependencies": {
-  "realm": "npm:@pomwik/keelstore@20.3.0",
-  "@realm/react": "npm:@pomwik/keelstore-react@0.20.1"
+  "realm": "npm:@pomwik/afterdb@20.3.0",
+  "@realm/react": "npm:@pomwik/afterdb-react@0.20.1"
 }
 ```
 
@@ -66,6 +66,12 @@ dependencies at `bridge/out/*.tgz` and `react/out/*.tgz`.
   prebuilt engine unchanged.
 - Realm Swift, Kotlin and Flutter.
 - SwiftPM (React Native 0.89): design note in `docs/SWIFTPM.md`, not implemented yet.
+- Debug builds on React Native 0.83 and later (React 19.2 and later): React's performance track reads the props of
+  rendered components, including Realm objects that were just deleted, and reading a deleted Realm object throws.
+  Release builds are not affected. This is a React bug (facebook/react#35126); a fix is proposed in facebook/react#36867
+  but not merged (see also realm/realm-js#7086). To avoid it: key list rows by primary key, or pass ids and read
+  the object with `useObject`; update embedded objects in place instead of replacing them; or patch React Native's
+  dev renderer with patch-package.
 
 ## Development
 
@@ -89,7 +95,7 @@ the npm integrity of `realm@20.2.0` and `@realm/react@0.20.0` and the SHA-256 of
 
 ## Reporting issues
 
-Open an issue with your versions of keelstore, React Native, Expo, Xcode or the Android NDK, and the full error.
+Open an issue with your versions of afterdb, React Native, Expo, Xcode or the Android NDK, and the full error.
 Security problems: see `SECURITY.md`.
 
 ## Need help?

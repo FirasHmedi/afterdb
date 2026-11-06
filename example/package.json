@@ -1,5 +1,5 @@
 {
-  "name": "KeelExample",
+  "name": "AfterdbExample",
   "version": "0.0.1",
   "private": true,
   "scripts": {
@@ -15,8 +15,8 @@
     "react-native": "0.88.1",
     "@react-native/new-app-screen": "0.88.1",
     "react-native-safe-area-context": "^5.5.2",
-    "realm": "file:../bridge/out/pomwik-keelstore-20.3.0.tgz",
-    "@realm/react": "file:../react/out/pomwik-keelstore-react-0.20.1.tgz"
+    "realm": "file:../bridge/out/pomwik-afterdb-20.3.0.tgz",
+    "@realm/react": "file:../react/out/pomwik-afterdb-react-0.20.1.tgz"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

@@ -86,16 +86,16 @@ jobs:
       - name: Packages
         run: ls -l bridge/out/*.tgz react/out/*.tgz && sha256sum bridge/out/*.tgz react/out/*.tgz
       - run: npm test
-      - name: Converter tests (with the keelstore package, nothing from static.realm.io)
+      - name: Converter tests (with the afterdb package, nothing from static.realm.io)
         working-directory: converter
         run: |
           # --ignore-scripts: the lockfile's upstream realm@20.2.0 would run prebuild-install (static.realm.io).
           # Our package replaces it and ships the Node binaries.
           npm ci --ignore-scripts --no-audit --no-fund
-          npm install --no-save --ignore-scripts --no-audit --no-fund realm@file:../bridge/out/pomwik-keelstore-20.3.0.tgz
+          npm install --no-save --ignore-scripts --no-audit --no-fund realm@file:../bridge/out/pomwik-afterdb-20.3.0.tgz
           # no rebuild needed: better-sqlite3 13 has no install script and ships its binaries in prebuilds/
           name=$(node -p 'require("./node_modules/realm/package.json").name')
-          [ "$name" = "@pomwik/keelstore" ] || { echo "::error::converter tests would run on $name, not @pomwik/keelstore"; exit 1; }
+          [ "$name" = "@pomwik/afterdb" ] || { echo "::error::converter tests would run on $name, not @pomwik/afterdb"; exit 1; }
           npm test
       # shared with the android and ios jobs (a cache, not an artifact: artifact storage is small on a private repo)
       - name: Share the packages
@@ -109,7 +109,8 @@ jobs:
   android:
     needs: packages
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    # release and debug builds of the 4 ABIs
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -133,9 +134,12 @@ jobs:
         with:
           path: ~/.gradle/caches
           key: gradle-${{ hashFiles('example/android/**/*.gradle*', 'example/package.json') }}
-      - name: Install the example app (realm and @realm/react aliased to the keelstore packages)
+      - name: Install the example app (realm and @realm/react aliased to the afterdb packages)
         working-directory: example
         run: npm install --no-audit --no-fund
+      - name: Typecheck the example app
+        working-directory: example
+        run: npx tsc --noEmit
       - name: Release build, 4 ABIs
         working-directory: example/android
         run: ./gradlew assembleRelease --console=plain
@@ -165,9 +169,20 @@ jobs:
           name: example-release-apk
           path: example/android/app/build/outputs/apk/release/app-release.apk
           retention-days: 7
+      # compile check only: a debug APK loads its JS from Metro, so it is not run
+      - name: Debug build, 4 ABIs (compile check)
+        working-directory: example/android
+        run: |
+          # full log in a file: on failure, print the errors and the end of the log
+          if ! ./gradlew assembleDebug --console=plain > gradle-debug.log 2>&1; then
+            grep -E '(error:|^e: |FAILURE|What went wrong)' gradle-debug.log | head -100 || true
+            tail -80 gradle-debug.log
+            exit 1
+          fi
+          tail -5 gradle-debug.log
 
   # Runs the release APK of the android job on emulators and checks the self-check screen twice
-  # (KEELSTORE_SELF_CHECK_OK, then launches 1 and 2 after a force-stop). Started by hand (Actions tab).
+  # (AFTERDB_SELF_CHECK_OK, then launches 1 and 2 after a force-stop). Started by hand (Actions tab).
   android-run:
     if: github.event_name == 'workflow_dispatch' && inputs.emulators
     needs: android
@@ -200,7 +215,7 @@ jobs:
           arch: x86_64
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
-          script: bash scripts/android-selfcheck.sh app-release.apk com.keelexample android-${{ matrix.api }}-${{ matrix.target }}.png
+          script: bash scripts/android-selfcheck.sh app-release.apk com.afterdbexample android-${{ matrix.api }}-${{ matrix.target }}.png
       - if: always()
         uses: actions/upload-artifact@v7
         with:
@@ -209,35 +224,57 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  # Xcode: exactly 26.4 (the oldest supported) without frameworks, and the newest released Xcode >= 26.4 with
+  # frameworks none, static and dynamic.
   ios:
     if: github.event_name == 'workflow_dispatch' && inputs.ios
     needs: packages
     runs-on: macos-26
-    timeout-minutes: 60
+    # Debug and Release simulator builds, then the device build
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
-        frameworks: [none, static, dynamic]
-    name: ios (frameworks ${{ matrix.frameworks }})
+        include:
+          - { frameworks: none, xcode: '26.4' }
+          - { frameworks: none, xcode: newest }
+          - { frameworks: static, xcode: newest }
+          - { frameworks: dynamic, xcode: newest }
+    name: ios (frameworks ${{ matrix.frameworks }}, Xcode ${{ matrix.xcode }})
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-      - name: Xcode 26.4 or newer
+      # xcode '26.4': exactly /Applications/Xcode_26.4*.app (26.4 or a 26.4.x patch release, never a beta or RC);
+      # xcode newest: the newest released Xcode 26.x >= 26.4
+      - name: Xcode ${{ matrix.xcode }} (released, not beta)
+        env:
+          XCODE: ${{ matrix.xcode }}
         run: |
           echo "Installed:"; ls -d /Applications/Xcode*.app || true
+          case "$XCODE" in
+            26.4) pattern='/Applications/Xcode_26.4*.app' ;;
+            newest) pattern='/Applications/Xcode_26.*.app' ;;
+            *) echo "::error::unknown matrix value xcode=$XCODE"; exit 1 ;;
+          esac
           best=""; bestkey=0; bestv=""
-          for app in /Applications/Xcode_26.*.app; do
+          for app in $pattern; do
             [ -d "$app" ] || continue
-            case "$app" in *[Bb]eta*|*Release_Candidate*) continue ;; esac
+            case "$app" in *[Bb]eta*|*Release_Candidate*|*_RC*) continue ;; esac
             v=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist" 2>/dev/null) || continue
             IFS=. read -r a b c <<<"$v"
             key=$(( ${a:-0} * 10000 + ${b:-0} * 100 + ${c:-0} ))
+            # 26.4: the version must be 26.4 or 26.4.x (the folder name alone could be misleading)
+            if [ "$XCODE" = 26.4 ] && { [ "${a:-}" != 26 ] || [ "${b:-}" != 4 ]; }; then continue; fi
             if [ "$key" -ge 260400 ] && [ "$key" -gt "$bestkey" ]; then bestkey=$key; best=$app; bestv=$v; fi
           done
           if [ -z "$best" ]; then
-            echo "::error::No released Xcode 26.x >= 26.4 in /Applications (React Native 0.88 and the keelstore patches need it)"
+            if [ "$XCODE" = 26.4 ]; then
+              echo "::error::No released Xcode 26.4 on this runner (looked for $pattern, betas and RCs excluded): the 26.4 entry of the matrix cannot run"
+            else
+              echo "::error::No released Xcode 26.x >= 26.4 in /Applications (React Native 0.88 and the afterdb patches need it)"
+            fi
             exit 1
           fi
           echo "Using Xcode $bestv ($best)"
@@ -269,12 +306,18 @@ jobs:
       - name: pod install
         working-directory: example/ios
         run: bundle install && bundle exec pod install
-      - name: Boot an iPhone simulator (newest iOS runtime)
+      # newest iOS runtime not newer than the selected Xcode's simulator SDK (an older Xcode may not run a later runtime)
+      - name: Boot an iPhone simulator (newest iOS runtime of the selected Xcode)
         run: |
+          SDK=$(xcrun --sdk iphonesimulator --show-sdk-version)
+          export SDK
+          echo "iphonesimulator SDK $SDK"
           udid=$(xcrun simctl list devices available -j | python3 -c '
-          import json, re, sys
+          import json, os, re, sys
           d = json.load(sys.stdin)["devices"]
-          ios = sorted((k for k in d if "iOS" in k), key=lambda k: [int(x) for x in re.findall(r"\d+", k)])
+          sdk = [int(x) for x in os.environ["SDK"].split(".")][:2]
+          ver = lambda k: [int(x) for x in re.findall(r"\d+", k)]
+          ios = sorted((k for k in d if "iOS" in k and ver(k)[:2] <= sdk), key=ver)
           for rt in reversed(ios):
               phones = [x for x in d[rt] if x["name"].startswith("iPhone")]
               if phones:
@@ -285,11 +328,24 @@ jobs:
           [ -n "$udid" ] || { echo "::error::no iPhone simulator available"; exit 1; }
           xcrun simctl bootstatus "$udid" -b
           echo "SIM_UDID=$udid" >> "$GITHUB_ENV"
+      # Debug loads the JS from Metro: built only, not run
+      - name: Simulator build (Debug)
+        working-directory: example/ios
+        run: |
+          # full log in a file: on failure, print the errors and the end of the log
+          if ! xcodebuild -workspace AfterdbExample.xcworkspace -scheme AfterdbExample -configuration Debug \
+              -destination "id=$SIM_UDID" -derivedDataPath build-debug ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO build \
+              > xcodebuild-sim-debug.log 2>&1; then
+            grep -E '(error|fatal error):|BUILD FAILED' xcodebuild-sim-debug.log | head -100 || true
+            tail -80 xcodebuild-sim-debug.log
+            exit 1
+          fi
+          tail -5 xcodebuild-sim-debug.log
       - name: Simulator build (Release)
         working-directory: example/ios
         run: |
           # full log in a file: on failure, print the errors and the end of the log
-          if ! xcodebuild -workspace KeelExample.xcworkspace -scheme KeelExample -configuration Release \
+          if ! xcodebuild -workspace AfterdbExample.xcworkspace -scheme AfterdbExample -configuration Release \
               -destination "id=$SIM_UDID" -derivedDataPath build ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO build \
               > xcodebuild-sim.log 2>&1; then
             grep -E '(error|fatal error):|BUILD FAILED' xcodebuild-sim.log | head -100 || true
@@ -300,12 +356,12 @@ jobs:
       - name: Self-check on the simulator (2 launches, result read from the app's realm file)
         working-directory: example
         run: |
-          bash ../scripts/ios-selfcheck.sh ios/build/Build/Products/Release-iphonesimulator/KeelExample.app \
-            org.reactjs.native.example.KeelExample "$GITHUB_WORKSPACE/ios-${{ matrix.frameworks }}.png"
+          bash ../scripts/ios-selfcheck.sh ios/build/Build/Products/Release-iphonesimulator/AfterdbExample.app \
+            org.reactjs.native.example.AfterdbExample "$GITHUB_WORKSPACE/ios-${{ matrix.frameworks }}-xcode-${{ matrix.xcode }}.png"
       - name: Device build (Release, generic iOS device, no signing)
         working-directory: example/ios
         run: |
-          if ! xcodebuild -workspace KeelExample.xcworkspace -scheme KeelExample -configuration Release \
+          if ! xcodebuild -workspace AfterdbExample.xcworkspace -scheme AfterdbExample -configuration Release \
               -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build \
               > xcodebuild-device.log 2>&1; then
             grep -E '(error|fatal error):|BUILD FAILED' xcodebuild-device.log | head -100 || true
@@ -313,14 +369,14 @@ jobs:
             exit 1
           fi
           tail -5 xcodebuild-device.log
-          app=build/Build/Products/Release-iphoneos/KeelExample.app
-          lipo -info "$app/KeelExample"
+          app=build/Build/Products/Release-iphoneos/AfterdbExample.app
+          lipo -info "$app/AfterdbExample"
           # with frameworks, the Realm binding must be embedded in the app
           find "$app" -maxdepth 2 -name '*.framework' | sed 's|.*/||' | sort | tr '\n' ' '; echo
       - if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: ios-${{ matrix.frameworks }}
+          name: ios-${{ matrix.frameworks }}-xcode-${{ matrix.xcode }}
           path: |
             ios-*.png
             example/ios/xcodebuild-*.log

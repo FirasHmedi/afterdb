@@ -19,12 +19,12 @@ const walk = (d) => readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.is
 const ABIS = ['arm64-v8a', 'armeabi-v7a', 'x86', 'x86_64'];
 const SLICES = ['ios-arm64', 'ios-arm64_x86_64-maccatalyst', 'ios-arm64_x86_64-simulator'];
 const DOCUMENTED_CHANGED = new Set([
-  'package.json', 'README.md', 'RealmJS.podspec', 'dist/platform/node/binding.js',
+  'package.json', 'README.md', 'RealmJS.podspec', 'dist/platform/node/binding.js', 'binding/android/build.gradle',
   ...ABIS.flatMap((a) => [`prebuilds/android/${a}/share/cmake/Realm/RealmConfig.cmake`, `prebuilds/android/${a}/share/cmake/Realm/AcquireRealmDependency.cmake`]),
   ...SLICES.map((s) => `prebuilds/apple/realm-core.xcframework/${s}/Headers/external/s2/base/macros.h`),
 ]);
 const DOCUMENTED_REMOVED = new Set(['binding.gyp', 'scripts/submit-analytics.js', 'dist/scripts/submit-analytics.js', 'dist/scripts/submit-analytics.js.map', 'dist/scripts/submit-analytics.d.ts']);
-const DOCUMENTED_ADDED = (f) => /^prebuilds\/node\/(darwin-arm64|darwin-x64|linux-x64|linux-arm64|win32-x64)\/realm\.node$/.test(f) || /^prebuilds\/android\/[^/]+\/deps\/openssl-3\.5\.9-[a-z0-9]+-android\.tar\.gz$/.test(f) || ['LICENSE', 'NOTICE', 'CHANGES-FROM-UPSTREAM.md', 'checksums.txt'].includes(f);
+const DOCUMENTED_ADDED = (f) => /^prebuilds\/node\/(darwin-arm64|darwin-x64|linux-x64|linux-arm64|win32-x64)\/realm\.node$/.test(f) || /^prebuilds\/android\/[^/]+\/deps\/openssl-3\.5\.9-[a-z0-9]+-android\.tar\.gz$/.test(f) || ['LICENSE', 'NOTICE', 'CHANGES-FROM-UPSTREAM.md', 'checksums.txt', 'binding/android/consumer-rules.pro'].includes(f);
 
 test('only the documented files are changed, removed or added', () => {
   const a = new Set(walk(upPkg).map((f) => relative(upPkg, f)));
@@ -38,11 +38,11 @@ test('only the documented files are changed, removed or added', () => {
   assert.equal(changed.length, DOCUMENTED_CHANGED.size, 'a documented patch silently did not apply');
 });
 
-test('every changed text file carries the « Modified by Pomwik » notice (Apache-2.0 §4(b)); package.json via its "keelstore" field', () => {
+test('every changed text file carries the « Modified by Pomwik » notice (Apache-2.0 §4(b)); package.json via its "afterdb" field', () => {
   for (const f of DOCUMENTED_CHANGED) {
     if (f === 'README.md') continue; // replaced
     const t = readFileSync(join(pkg, f), 'utf8');
-    if (f === 'package.json') assert.ok(JSON.parse(t).keelstore?.upstream);
+    if (f === 'package.json') assert.ok(JSON.parse(t).afterdb?.upstream);
     else assert.match(t, /Modified by Pomwik, 2026/, f);
   }
 });
@@ -61,14 +61,15 @@ test('podspec: HEADER_SEARCH_PATHS is a string, so install_modules_dependencies 
   assert.equal(out, '"${PODS_TARGET_SRCROOT}/bindgen/vendor/realm-core/bindgen/src/" "$(PODS_ROOT)/Headers/Private/Yoga"');
 });
 
-test('binding.js fallback: "#realm.node" maps to a file the package does not contain', () => {
+// Updated on 2026-11-06: the dead "#realm.node" import is removed (binding.js no longer uses it).
+test('package.json: no "imports" field left (its only entry, "#realm.node", is removed)', () => {
   const pj = JSON.parse(readFileSync(join(pkg, 'package.json'), 'utf8'));
-  assert.equal(existsSync(join(pkg, pj.imports['#realm.node'])), false);
+  assert.equal(pj.imports, undefined);
 });
 
 test('package size vs upstream', () => {
   const kb = (d) => Number(execFileSync('du', ['-sk', d], { encoding: 'utf8' }).split('\t')[0]);
-  console.log(`unpacked: upstream ${Math.round(kb(upPkg) / 1024)} MB, keelstore ${Math.round(kb(pkg) / 1024)} MB; tarball upstream ${Math.round(statSync(join(root, 'bridge/.cache/realm-20.2.0.tgz')).size / 1048576)} MB, keelstore ${Math.round(statSync(join(root, 'bridge/out/pomwik-keelstore-20.3.0.tgz')).size / 1048576)} MB`);
+  console.log(`unpacked: upstream ${Math.round(kb(upPkg) / 1024)} MB, afterdb ${Math.round(kb(pkg) / 1024)} MB; tarball upstream ${Math.round(statSync(join(root, 'bridge/.cache/realm-20.2.0.tgz')).size / 1048576)} MB, afterdb ${Math.round(statSync(join(root, 'bridge/out/pomwik-afterdb-20.3.0.tgz')).size / 1048576)} MB`);
 });
 
 // Updated on 2026-11-06: every upstream download is now checked against a pinned hash, on download and on reuse.

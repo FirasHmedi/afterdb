@@ -182,6 +182,16 @@ puts JSON.generate($spec.attrs)
   rmSync(dir, { recursive: true, force: true });
 });
 
+test('Android: consumer ProGuard rules keep the binding classes the native code looks up (R8 in release builds)', () => {
+  const gradle = read('binding/android/build.gradle');
+  assert.match(gradle, /\n    defaultConfig \{\n        \/\/ Modified by Pomwik, 2026[^\n]*\n        consumerProguardFiles 'consumer-rules\.pro'\n/);
+  const rules = read('binding/android/consumer-rules.pro');
+  assert.match(rules, /^-keep class io\.realm\.react\.\*\* \{ \*; \}$/m);
+  assert.match(rules, /Modified by Pomwik, 2026/);
+  // the class that JNI_OnLoad looks up by name must be inside the kept package
+  assert.ok(existsSync(join(pkg, 'binding/android/src/main/java/io/realm/react/util/SSLHelper.java')));
+});
+
 test('Android: librealm.so is built with the app\'s NDK (rootProject.ext.ndkVersion) when it sets one', () => {
   const gradle = read('binding/android/build.gradle');
   const android = gradle.slice(gradle.indexOf('\nandroid {'), gradle.indexOf('\nproject.dependencies'));

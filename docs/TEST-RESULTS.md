@@ -4,6 +4,8 @@ Machine: MacBook (macOS 14.4, Apple silicon), Node 22.19, Android SDK 36/37, NDK
 Xcode is not installed on this machine (Xcode 26 needs macOS 15): iOS is only configured in CI.
 Results are local unless marked CI. The CI (GitHub Actions, ubuntu-24.04) had its first green run on 2026-11-06
 (packages, tests, Android build of the 4 ABIs, 16 KB check). The iOS job is configured but has not run yet.
+afterdb was formerly keelstore: these runs used the old names, given here under the new ones (packages,
+`afterdb-convert`, `AFTERDB_SELF_CHECK_OK`, `_afterdb_meta`).
 
 ## 2026-11-06
 
@@ -13,7 +15,7 @@ Results are local unless marked CI. The CI (GitHub Actions, ubuntu-24.04) had it
 - The Android build downloads OpenSSL 3.3.1 from static.realm.io during CMake configure (seen in the Gradle log).
 - iOS failures (#7157 on React Native >= 0.86, #7115 on Xcode 26.4): not reproduced locally (no Xcode 26 here).
 
-### keelstore packages (`npm test`, 11 tests)
+### afterdb packages (`npm test`, 11 tests)
 | Test | Result |
 |---|---|
 | package.json: no install/postinstall script, no prebuild-install, no analytics, no binding.gyp | Pass |
@@ -26,12 +28,12 @@ Results are local unless marked CI. The CI (GitHub Actions, ubuntu-24.04) had it
 | `@realm/react`: react-native is an optional peer, not a nested dependency | Pass |
 
 ### Example app, React Native 0.88.1, new architecture, Hermes (Android)
-- `npm install`: `realm` and `@realm/react` resolve to `@pomwik/keelstore` and `@pomwik/keelstore-react`.
+- `npm install`: `realm` and `@realm/react` resolve to `@pomwik/afterdb` and `@pomwik/afterdb-react`.
 - `./gradlew assembleRelease` for arm64-v8a and x86_64: **BUILD SUCCESSFUL**. `librealm.so` built for both ABIs
   (9.4 MB and 10.3 MB). OpenSSL taken from the bundled archive, nothing downloaded from static.realm.io.
 - 16 KB check (`scripts/check-16kb.mjs`, local; configured in CI): **all 24 native libraries of the APK are 16 KB
   aligned**.
-- Run on the Pixel 8 emulator (Android 16, arm64): the self-check screen shows `KEELSTORE_SELF_CHECK_OK` and
+- Run on the Pixel 8 emulator (Android 16, arm64): the self-check screen shows `AFTERDB_SELF_CHECK_OK` and
   « 11 tasks done (live query) »: write, read, update and live query through `RealmProvider` / `useQuery`.
 
 First attempt failed (`Could NOT find OpenSSL`): `file(COPY_FILE)` does not create the destination folder, unlike
@@ -49,7 +51,7 @@ and the `cmake -P` test now catches this class of error without an NDK.
   (React Native's own included) are 4 KB aligned, which Google Play allows: the check reports them only.
 - Self-check extended with an encrypted realm (64-byte key: write, close, reopen with the key, refused without it).
 - **Emulator with 16 KB pages** (Android 16, `google_apis_playstore_ps16k`, `PAGE_SIZE` = 16384): the app starts and
-  shows `KEELSTORE_SELF_CHECK_OK`, encrypted realm and live query included.
+  shows `AFTERDB_SELF_CHECK_OK`, encrypted realm and live query included.
 
 Found on the way: a `package-lock.json` pins the integrity of a local `.tgz`, so npm silently reinstalls the old
 package after a rebuild. The example app no longer commits its lockfile.
@@ -76,8 +78,8 @@ A separate session tested the packages against upstream, with its own tests (`re
 Defects found, all fixed the same day (the review tests that showed them now check the fix, `review/run-all.sh`):
 - converter: silent loss of data with `--schema` (the model now always comes from the file; the app schema only
   adds backlinks and drift warnings); a failed verification left a file at the final path (now `<out>.failed`);
-  `--force` deleted the old output first; clashing names (`Item`/`item`, `_keel_meta`) stopped the conversion
-  (now renamed with a suffix, recorded in `_keel_meta`);
+  `--force` deleted the old output first; clashing names (`Item`/`item`, `_afterdb_meta`) stopped the conversion
+  (now renamed with a suffix, recorded in `_afterdb_meta`);
 - CI: missing `pipefail`, so a failing step could pass;
 - podspec: `HEADER_SEARCH_PATHS` given as an array, which `install_modules_dependencies` turns into `["..."] …`;
 - upstream downloads not pinned (Node binaries, OpenSSL archives): now checked against pinned hashes, also on reuse;

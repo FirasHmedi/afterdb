@@ -30,7 +30,7 @@ class SceneDelegate: RCTDefaultReactNativeFactoryDelegate, UIWindowSceneDelegate
     #endif
     
     reactNativeFactory?.startReactNative(
-      withModuleName: "KeelExample",
+      withModuleName: "AfterdbExample",
       in: window,
       connectionOptions: connectionOptions
     )

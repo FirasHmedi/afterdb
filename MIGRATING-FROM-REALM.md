@@ -1,9 +1,9 @@
-# Switching from realm to @pomwik/keelstore
+# Switching from realm to @pomwik/afterdb
 
-1. In `package.json`, point the two packages at the keelstore builds (your imports do not change):
+1. In `package.json`, point the two packages at the afterdb builds (your imports do not change):
    ```json
-   "realm": "npm:@pomwik/keelstore@20.3.0",
-   "@realm/react": "npm:@pomwik/keelstore-react@0.20.1"
+   "realm": "npm:@pomwik/afterdb@20.3.0",
+   "@realm/react": "npm:@pomwik/afterdb-react@0.20.1"
    ```
 2. Reinstall: `rm -rf node_modules && npm install` (or the yarn / pnpm equivalent).
 3. iOS: `cd ios && pod install`. Android: `cd android && ./gradlew clean`.

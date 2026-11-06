@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Reads the self-check result that the example app writes to selfcheck-result.realm, and checks it.
-// Usage (from an app folder whose node_modules/realm is the keelstore package):
+// Usage (from an app folder whose node_modules/realm is the afterdb package):
 //   node ../scripts/read-selfcheck.mjs <selfcheck-result.realm> [expected launches]
-// Prints the result as JSON. Exit code: 0 if the text is KEELSTORE_SELF_CHECK_OK (and launches match),
+// Prints the result as JSON. Exit code: 0 if the text is AFTERDB_SELF_CHECK_OK (and launches match),
 // 1 otherwise, 2 if the file cannot be read.
 import { copyFileSync, mkdtempSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -30,5 +30,5 @@ try {
   process.exit(2);
 }
 console.log(JSON.stringify(row ?? null));
-const ok = row?.text === 'KEELSTORE_SELF_CHECK_OK' && (!expectedLaunches || row.launches === `launches: ${expectedLaunches}`);
+const ok = row?.text === 'AFTERDB_SELF_CHECK_OK' && (!expectedLaunches || row.launches === `launches: ${expectedLaunches}`);
 process.exit(ok ? 0 : 1);

@@ -1,8 +1,8 @@
 /**
- * keelstore example: the app imports "realm" and "@realm/react" as usual; package.json points both names
- * at the keelstore packages. On start the screen runs a self-check on a Projects/Tasks model (schema.ts):
+ * afterdb example: the app imports "realm" and "@realm/react" as usual; package.json points both names
+ * at the afterdb packages. On start the screen runs a self-check on a Projects/Tasks model (schema.ts):
  * create, read, update, delete, primitives, link, list, embedded object, backlink, queries, an encrypted
- * realm, and the live hooks useQuery and useObject. It shows KEELSTORE_SELF_CHECK_OK only if every check
+ * realm, and the live hooks useQuery and useObject. It shows AFTERDB_SELF_CHECK_OK only if every check
  * passes, otherwise the names of the failed checks. It also counts the starts in a realm file kept on disk
  * (persistence check: the number goes up by 1 on each start).
  */
@@ -53,7 +53,7 @@ const address = (street: string, city: string) => ({ street, city }) as Address;
 function runChecks(realm: Realm): Checks {
   realm.write(() => {
     realm.deleteAll();
-    const project = realm.create(Project, { _id: 1, name: 'Keel', address: address('1 Quay', 'Lyon') });
+    const project = realm.create(Project, { _id: 1, name: 'Alpha', address: address('1 Quay', 'Lyon') });
     for (let i = 0; i < 5; i++) {
       project.tasks.push(realm.create(Task, { _id: i, title: `Task ${i}`, done: i < 2, estimate: i + 0.5, due: due(i + 1), project }));
     }
@@ -66,7 +66,7 @@ function runChecks(realm: Realm): Checks {
     link: t3.project?._id === 1,
     list: project.tasks.length === 5 && project.tasks[3]._id === 3,
     embedded: project.address?.city === 'Lyon',
-    backlink: t3.projects.length === 1 && t3.projects[0].name === 'Keel',
+    backlink: t3.projects.length === 1 && t3.projects[0].name === 'Alpha',
     query:
       realm.objects(Task).filtered('done == true AND project.address.city == $0', 'Lyon').length === 2 &&
       realm.objects(Task).filtered('ANY projects._id == 1').length === 5 &&
@@ -147,9 +147,9 @@ function SelfCheck() {
 
   // Live hooks: once useObject shows the project, change it; both hooks must re-render with the change
   useEffect(() => {
-    if (checks && project?.name === 'Keel') {
+    if (checks && project?.name === 'Alpha') {
       realm.write(() => {
-        project.name = 'Keel renamed';
+        project.name = 'Alpha renamed';
         project.tasks.push(realm.create(Task, { _id: 10, title: 'Late task', done: true, estimate: 1, due: due(30), project }));
       });
     }
@@ -158,16 +158,16 @@ function SelfCheck() {
   const all: Checks | undefined = checks && {
     ...checks,
     useQuery: doneTasks.length === 4 && doneTasks.some((t) => t._id === 10),
-    useObject: project?.name === 'Keel renamed' && project.tasks.length === 5,
+    useObject: project?.name === 'Alpha renamed' && project.tasks.length === 5,
   };
   const failed = all ? Object.keys(all).filter((name) => !all[name]) : [];
   let result = 'running';
   if (error) {
-    result = `KEELSTORE_SELF_CHECK_ERROR ${error}`;
+    result = `AFTERDB_SELF_CHECK_ERROR ${error}`;
   } else if (all && failed.length === 0) {
-    result = 'KEELSTORE_SELF_CHECK_OK';
+    result = 'AFTERDB_SELF_CHECK_OK';
   } else if (all && timedOut) {
-    result = `KEELSTORE_SELF_CHECK_FAILED: ${failed.join(', ')}`;
+    result = `AFTERDB_SELF_CHECK_FAILED: ${failed.join(', ')}`;
   }
 
   useEffect(() => {
@@ -176,7 +176,7 @@ function SelfCheck() {
 
   return (
     <>
-      <Text style={styles.title}>keelstore example</Text>
+      <Text style={styles.title}>afterdb example</Text>
       <Text testID="result">{result}</Text>
       {all && <Text style={styles.small}>{Object.keys(all).length} checks: {Object.keys(all).join(', ')}</Text>}
       <Text>useQuery: {doneTasks.length} tasks done</Text>

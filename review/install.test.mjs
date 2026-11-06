@@ -10,7 +10,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const tarball = join(root, 'bridge/out/pomwik-keelstore-20.3.0.tgz');
+const tarball = join(root, 'bridge/out/pomwik-afterdb-20.3.0.tgz');
 const BLOCKED = { ...process.env, https_proxy: 'http://127.0.0.1:9', HTTPS_PROXY: 'http://127.0.0.1:9', http_proxy: 'http://127.0.0.1:9', HTTP_PROXY: 'http://127.0.0.1:9', npm_config_proxy: 'http://127.0.0.1:9', npm_config_https_proxy: 'http://127.0.0.1:9' };
 
 function app(name) {
@@ -64,18 +64,19 @@ test('yarn 1: install, no lifecycle script, works', { skip: spawnSync('yarn', ['
   const log = r.stdout + r.stderr;
   assert.doesNotMatch(log, /prebuild-install|submit-analytics|node-gyp rebuild|static\.realm\.io/);
   assert.doesNotMatch(log, /verbose.*Running .*(install|postinstall)/i);
-  assert.equal(JSON.parse(readFileSync(join(dir, 'node_modules/realm/package.json'), 'utf8')).name, '@pomwik/keelstore');
+  assert.equal(JSON.parse(readFileSync(join(dir, 'node_modules/realm/package.json'), 'utf8')).name, '@pomwik/afterdb');
   writeFileSync(join(dir, 't.mjs'), "import Realm from 'realm'; console.log(typeof Realm.open); process.exit(0);\n");
   assert.equal(execFileSync('node', ['t.mjs'], { cwd: dir, encoding: 'utf8' }).trim(), 'function');
 });
 
-test('binding fallback: the upstream "#realm.node" path does not exist in the package (fallback is dead code)', () => {
+// Updated on 2026-11-06: the dead "#realm.node" import is removed; binding.js names the platform when no binary
+// is shipped for it.
+test('binding: no "#realm.node" import left, and no binary at the upstream path', () => {
   const dir = mkdtempSync(join(tmpdir(), 'review-pkg-'));
   execFileSync('tar', ['-xzf', tarball, '-C', dir]);
   const pj = JSON.parse(readFileSync(join(dir, 'package/package.json'), 'utf8'));
-  assert.equal(pj.imports['#realm.node'], './prebuilds/node/realm.node');
+  assert.equal(pj.imports, undefined);
   assert.equal(existsSync(join(dir, 'package/prebuilds/node/realm.node')), false);
-  // so on any other platform (linux-arm, win32-arm64, freebsd, musl...) the error is MODULE_NOT_FOUND for #realm.node
   const sizes = readdirSync(join(dir, 'package/prebuilds/node')).map((t) => `${t}=${Math.round(statSync(join(dir, 'package/prebuilds/node', t, 'realm.node')).size / 1048576)}MB`);
   console.log('node binaries:', sizes.join(' '), ' tarball:', Math.round(statSync(tarball).size / 1048576), 'MB');
 });

@@ -1,4 +1,4 @@
-// Adversarial tests of the converter (keel-convert). Uses the converter's own realm@20.2.0 and better-sqlite3.
+// Adversarial tests of the converter (afterdb-convert). Uses the converter's own realm@20.2.0 and better-sqlite3.
 // Run after `cd converter && npm install`: node --test --test-concurrency=1 review/converter-adversarial.test.mjs
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -24,7 +24,7 @@ async function make(file, schema, fill, extra = {}) {
   if (fill) r.write(() => fill(r));
   r.close();
 }
-const cli = (...args) => spawnSync('node', [path.join(conv, 'bin/keel-convert.mjs'), ...args], { encoding: 'utf8', timeout: 120_000 });
+const cli = (...args) => spawnSync('node', [path.join(conv, 'bin/afterdb-convert.mjs'), ...args], { encoding: 'utf8', timeout: 120_000 });
 
 test('empty realm (one class, 0 objects) and realm with only an embedded class + 0-object class', async () => {
   await make(p('empty.realm'), [{ name: 'A', properties: { x: 'int' } }]);
@@ -72,7 +72,7 @@ test('unicode: lone surrogates, NUL, NFC vs NFD distinct primary keys, 4-byte em
 });
 
 // Name conflicts (SQLite identifiers ignore case, generated names, reserved names): converted with a fixed
-// suffix, a warning and a `renames` entry in _keel_meta. Updated on 2026-11-06 after the converter fix.
+// suffix, a warning and a `renames` entry in _afterdb_meta. Updated on 2026-11-06 after the converter fix.
 function tableRows(file, table) {
   const db = new Database(file, { readonly: true });
   try {
@@ -108,12 +108,12 @@ test('generated names collide: class "A__b" next to class A with a list "b": bot
   assert.equal(tableRows(p('clash.sqlite'), 'A__b_2').length, 1);
 });
 
-test('a class named _keel_meta is converted under another name; the tool metadata is intact', async () => {
-  await make(p('meta.realm'), [{ name: '_keel_meta', properties: { key: 'string', value: 'string' } }], (r) => r.create('_keel_meta', { key: 'a', value: 'b' }));
+test('a class named _afterdb_meta is converted under another name; the tool metadata is intact', async () => {
+  await make(p('meta.realm'), [{ name: '_afterdb_meta', properties: { key: 'string', value: 'string' } }], (r) => r.create('_afterdb_meta', { key: 'a', value: 'b' }));
   const r = await convert(p('meta.realm'), p('meta.sqlite'));
   assert.equal(r.ok, true);
-  assert.deepEqual(tableRows(p('meta.sqlite'), '_keel_meta_2').map((x) => [x.key, x.value]), [['a', 'b']]);
-  assert.ok(tableRows(p('meta.sqlite'), '_keel_meta').some((x) => x.key === 'renames'));
+  assert.deepEqual(tableRows(p('meta.sqlite'), '_afterdb_meta_2').map((x) => [x.key, x.value]), [['a', 'b']]);
+  assert.ok(tableRows(p('meta.sqlite'), '_afterdb_meta').some((x) => x.key === 'renames'));
 });
 
 test('--schema with only a subset of the classes: are the other classes silently dropped while verification says OK?', async () => {
@@ -176,8 +176,8 @@ test('wrong key, no key on an encrypted file, corrupted and truncated files: exi
   }
 });
 
-test('--key on the command line is visible in the process list (ps): documented alternative KEEL_KEY works', async () => {
-  const r = spawnSync('node', [path.join(conv, 'bin/keel-convert.mjs'), p('enc.realm'), p('enc-env.sqlite')], { encoding: 'utf8', env: { ...process.env, KEEL_KEY: '07'.repeat(64) } });
+test('--key on the command line is visible in the process list (ps): documented alternative AFTERDB_KEY works', async () => {
+  const r = spawnSync('node', [path.join(conv, 'bin/afterdb-convert.mjs'), p('enc.realm'), p('enc-env.sqlite')], { encoding: 'utf8', env: { ...process.env, AFTERDB_KEY: '07'.repeat(64) } });
   assert.equal(r.status, 0, r.stdout + r.stderr);
 });
 

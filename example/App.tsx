@@ -1,6 +1,7 @@
 /**
  * keelstore example: the app imports "realm" and "@realm/react" as usual; package.json points both names
- * at the keelstore packages. The screen runs a self-check (write, query, update, delete) on start.
+ * at the keelstore packages. The screen runs a self-check (write, query, update, delete) on start, and counts
+ * the starts in a realm file kept on disk (persistence check: the number goes up by 1 on each start).
  */
 import React, { useEffect, useState } from 'react';
 import { SafeAreaView, StyleSheet, Text } from 'react-native';
@@ -18,10 +19,43 @@ class Task extends Realm.Object<Task> {
   };
 }
 
+class Launches extends Realm.Object<Launches> {
+  _id!: string;
+  count!: number;
+  static schema: Realm.ObjectSchema = {
+    name: 'Launches',
+    primaryKey: '_id',
+    properties: { _id: 'string', count: 'int' },
+  };
+}
+
+// Counted once per process (module cache), even if React renders or runs effects twice
+let launchText: string | undefined;
+function countLaunch(): string {
+  if (launchText === undefined) {
+    try {
+      // On-disk file, never deleted: the counter must survive the app being stopped
+      const disk = new Realm({ schema: [Launches], path: 'launches.realm' });
+      let count = 0;
+      disk.write(() => {
+        const row = disk.objectForPrimaryKey(Launches, 'app') ?? disk.create(Launches, { _id: 'app', count: 0 });
+        row.count += 1;
+        count = row.count;
+      });
+      disk.close();
+      launchText = `launches: ${count}`;
+    } catch (e) {
+      launchText = `launches: error ${String(e)}`;
+    }
+  }
+  return launchText;
+}
+
 function SelfCheck() {
   const realm = useRealm();
   const done = useQuery(Task, (tasks) => tasks.filtered('done == true'));
   const [result, setResult] = useState('running');
+  const [launches] = useState(countLaunch);
 
   useEffect(() => {
     try {
@@ -58,6 +92,7 @@ function SelfCheck() {
       <Text style={styles.title}>keelstore example</Text>
       <Text testID="result">{result}</Text>
       <Text>{done.length} tasks done (live query)</Text>
+      <Text testID="launches">{launches}</Text>
     </>
   );
 }

@@ -18,6 +18,8 @@ CACHE="$HERE/../.cache/openssl"
 WORK="$HERE/../.cache/openssl-build"
 API=24
 mkdir -p "$CACHE" "$WORK"
+WORK="$(cd "$WORK" && pwd -P)"
+REPO="$(cd "$HERE/../.." && pwd -P)"
 
 NDK="${ANDROID_NDK_ROOT:-}"
 if [ -z "$NDK" ]; then
@@ -51,17 +53,32 @@ for pair in arm64-v8a:arm64:android-arm64 armeabi-v7a:arm:android-arm x86:x86:an
   B="$WORK/$ABI"
   rm -rf "$B" && mkdir -p "$B/src" "$B/pkg"
   tar -xzf "$WORK/$SRC" -C "$B/src" --strip-components=1
+  # No build path may end up in the libraries:
+  # - --prefix and --openssldir are compiled into libcrypto (ENGINESDIR, MODULESDIR, OPENSSLDIR), so both are
+  #   neutral and the files are staged with DESTDIR instead of being installed into the prefix.
+  # - Sources are compiled in-tree with relative paths, so __FILE__ holds no absolute path. No -ffile-prefix-map:
+  #   the compiler flags are embedded verbatim in libcrypto (OpenSSL_version(OPENSSL_CFLAGS)), the flag itself
+  #   would add the build path back.
+  STAGE="$B/stage"
   (
     cd "$B/src"
     ./Configure "$TARGET" -D__ANDROID_API__=$API no-shared no-tests no-docs no-apps no-engine no-module \
-      --prefix="$B/prefix" --openssldir=/etc/ssl >/dev/null  # neutral path: it is compiled into libcrypto
+      --prefix=/usr/local --openssldir=/etc/ssl >/dev/null
     make -j"$(sysctl -n hw.ncpu 2>/dev/null || nproc)" build_libs >/dev/null
-    make install_dev >/dev/null
+    make install_dev DESTDIR="$STAGE" >/dev/null
   )
+  P="$STAGE/usr/local"
   mkdir -p "$B/pkg/lib" "$B/pkg/debug/lib" "$B/pkg/include"
-  cp -R "$B/prefix/include/openssl" "$B/pkg/include/"
-  cp "$B/prefix/lib/libcrypto.a" "$B/prefix/lib/libssl.a" "$B/pkg/lib/" 2>/dev/null || cp "$B"/prefix/lib*/lib{crypto,ssl}.a "$B/pkg/lib/"
+  cp -R "$P/include/openssl" "$B/pkg/include/"
+  cp "$P/lib/libcrypto.a" "$P/lib/libssl.a" "$B/pkg/lib/" 2>/dev/null || cp "$P"/lib*/lib{crypto,ssl}.a "$B/pkg/lib/"
   cp "$B/pkg/lib/"*.a "$B/pkg/debug/lib/"
+  # Fail if a local path still leaks into the package (repository folder or home folder)
+  for needle in "$REPO" "$HOME"; do
+    [ "${#needle}" -gt 1 ] || continue
+    if LC_ALL=C grep -rqaF -- "$needle" "$B/pkg"; then
+      echo "local path $needle found in:"; LC_ALL=C grep -rlaF -- "$needle" "$B/pkg"; exit 1
+    fi
+  done
   tar -xzf "$INCLUDE_CMAKE" -C "$B/pkg" include.cmake
   cp "$B/src/LICENSE.txt" "$B/pkg/LICENSE.txt"
   tar -czf "$OUT" -C "$B/pkg" .

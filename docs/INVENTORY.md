@@ -1,6 +1,8 @@
 # Inventory: how realm@20.2.0 is built and shipped
 
-Read from the official npm tarball `realm@20.2.0` (published 2025-08-11, integrity checked by `bridge/build.mjs`).
+Read from the official npm tarball `realm@20.2.0` of the Realm® JavaScript SDK (published 2025-08-11, integrity
+checked by `bridge/build.mjs`). Realm® is a trademark of MongoDB, Inc.; afterdb is not affiliated with or endorsed by
+MongoDB.
 
 ## What the npm tarball contains
 - `dist/`: the compiled TypeScript SDK. Node loads `dist/platform/node/index.js`; React Native loads `index.react-native.js`.
@@ -27,15 +29,19 @@ downloads the Node binary from static.realm.io. To avoid it, install with `--ign
 (`bridge/out/*.tgz`) in its place.
 
 ## Key files
-- `RealmJS.podspec`: sources of the binding, `vendored_frameworks` = the xcframework, C++20 flags, and the leftover
-  `REALM_ENABLE_SYNC=1` define (no shipped header or binding source reads it).
+- `RealmJS.podspec`: sources of the binding, `vendored_frameworks` = the xcframework, C++20 flags, the leftover
+  `REALM_ENABLE_SYNC=1` define (no shipped header or binding source reads it), and a minimum of iOS 9.0.
 - `binding/android/CMakeLists.txt` + `build.gradle`: builds `librealm.so` for the app from the binding sources and
-  the prebuilt `.a` files, with `-Wl,-z,max-page-size=16384` (16 KB pages).
+  the prebuilt `.a` files, with `-Wl,-z,max-page-size=16384` (16 KB pages). `build.gradle` sets no `ndkVersion`, so
+  AGP's default NDK builds `librealm.so`, not the app's.
 - `prebuilds/android/<abi>/share/cmake/Realm/RealmConfig.cmake`: imports the realm-core targets and acquires OpenSSL.
 
-## What keelstore changes
-See `CHANGES-FROM-UPSTREAM.md`. In short: no install script, all binaries and OpenSSL bundled, podspec fixed for
-React Native >= 0.86, s2 macros made harmless for Xcode 26.4, OpenSSL 3.5.9 LTS on Android. realm-core is not rebuilt.
+## What afterdb changes
+See `CHANGES-FROM-UPSTREAM.md`. In short (`@pomwik/afterdb` 20.3.0): no install script, all binaries and OpenSSL
+bundled, podspec fixed for React Native >= 0.86 and its minimum iOS version, s2 macros that no longer specialize
+`std::is_pod` (the Xcode 26.4 error of realm/realm-js#7115), OpenSSL 3.5.9 LTS on Android with its SHA-256 checked
+by CMake, the app's NDK for `librealm.so`. realm-core is not rebuilt. `@pomwik/afterdb-react` 0.20.1 repackages
+`@realm/react@0.20.0` with `react-native` as an optional peer.
 
 ## Failures reproduced so far
 See `docs/TEST-RESULTS.md`.

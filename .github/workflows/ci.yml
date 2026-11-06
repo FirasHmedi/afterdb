@@ -20,6 +20,11 @@ on:
         description: 'Also run the Android apps on emulators (example: Android 7, 11, 16, 16 with 16 KB pages; Expo: Android 16)'
         type: boolean
         default: true
+      ios_set:
+        description: 'iOS jobs: min = none on Xcode 26.4 + dynamic on the newest Xcode (2 macOS jobs, for a private repo); all = 4 jobs'
+        type: choice
+        options: [min, all]
+        default: min
 
 permissions:
   contents: read
@@ -328,12 +333,10 @@ jobs:
     timeout-minutes: 90
     strategy:
       fail-fast: false
+      # min (default while the repository is private, macOS minutes count 10x): the brief's Xcode 26.4 without
+      # frameworks, and dynamic frameworks (realm/realm-js#7157) on the newest Xcode. all: 4 jobs.
       matrix:
-        include:
-          - { frameworks: none, xcode: '26.4' }
-          - { frameworks: none, xcode: newest }
-          - { frameworks: static, xcode: newest }
-          - { frameworks: dynamic, xcode: newest }
+        include: ${{ fromJSON(inputs.ios_set == 'all' && '[{"frameworks":"none","xcode":"26.4"},{"frameworks":"none","xcode":"newest"},{"frameworks":"static","xcode":"newest"},{"frameworks":"dynamic","xcode":"newest"}]' || '[{"frameworks":"none","xcode":"26.4"},{"frameworks":"dynamic","xcode":"newest"}]') }}
     name: ios (frameworks ${{ matrix.frameworks }}, Xcode ${{ matrix.xcode }})
     steps:
       - uses: actions/checkout@v7

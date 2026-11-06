@@ -77,6 +77,10 @@ test('Node: one binary per platform, loaded by platform', () => {
   const binding = read('dist/platform/node/binding.js');
   assert.match(binding, /prebuilds\/node\/\$\{process\.platform\}-\$\{process\.arch\}\/realm\.node/);
   assert.match(binding, /Modified by Pomwik, 2026/);
+  // binding.js was the only user of the "#realm.node" subpath import: the entry is gone and nothing refers to it
+  assert.equal(JSON.parse(read('package.json')).imports, undefined);
+  assert.deepEqual(walk(join(pkg, 'dist')).filter((f) => readFileSync(f, 'utf8').includes('#realm.node')), []);
+  for (const f of ['index.react-native.js', 'react-native.config.js']) assert.ok(!read(f).includes('#realm.node'), f);
 });
 
 test('iOS: podspec uses install_modules_dependencies (realm/realm-js#7157)', () => {

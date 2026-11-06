@@ -40,6 +40,7 @@ export const OPENSSL = '3.5.9';
 export const IOS_FALLBACK_MIN = '15.1';
 
 const sha256 = (buf) => createHash('sha256').update(buf).digest('hex');
+const walk = (dir) => readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)]));
 
 /** Downloads once into the cache; the SHA-256 is checked both after download and when the cached copy is reused. */
 async function download(url, file, expected) {
@@ -151,6 +152,13 @@ const nativeModule = (() => {
     }
 })();`,
   );
+
+  // 3b. binding.js was the only user of the "#realm.node" subpath import (checked below): the dead entry goes too
+  const users = walk(pkg).filter((f) => !f.startsWith(join(pkg, 'prebuilds')) && /\.(c|m)?js$|\.ts$|\.map$/.test(f) && readFileSync(f, 'utf8').includes('#realm.node'));
+  if (users.length) throw new Error(`"#realm.node" still used by ${users.join(', ')}`);
+  if (pj.imports?.['#realm.node'] !== './prebuilds/node/realm.node') throw new Error("package.json: imports['#realm.node'] not found upstream");
+  delete pj.imports['#realm.node'];
+  if (!Object.keys(pj.imports).length) delete pj.imports;
 
   // 4. iOS: link React Native >= 0.86 pods built as frameworks (realm/realm-js#7157)
   patch(

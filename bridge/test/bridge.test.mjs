@@ -71,6 +71,21 @@ test('licence files: LICENSE, NOTICE, CHANGES-FROM-UPSTREAM.md, trademark notice
   assert.match(read('NOTICE'), /not affiliated with, sponsored by or endorsed by MongoDB/);
   assert.match(read('README.md'), /not affiliated with or endorsed by MongoDB/);
   assert.match(read('LICENSE'), /Apache License/);
+  // Apache-2.0 §4(b): the replaced README says so; Realm® at the first mention in the README and the list of changes
+  assert.match(read('README.md'), /^Modified by Pomwik, 2026: this file replaces the upstream README/m);
+  const changes = read('CHANGES-FROM-UPSTREAM.md');
+  for (const text of [read('README.md'), changes]) assert.equal(text.indexOf('Realm'), text.indexOf('Realm®'));
+  assert.ok(changes.includes('Realm® is a trademark of MongoDB, Inc. This project is independent and not affiliated with or endorsed by MongoDB.'));
+  assert.match(changes, /`include\.cmake` that is upstream's file, byte-identical to the one in realm's `openssl-3\.3\.1` archives/);
+});
+
+test('README of the package: only what was run is claimed as tested', () => {
+  const readme = read('README.md');
+  // React Native 0.86/0.87, Expo and Xcode 26.4 are being tested: named on the « Being tested » line only
+  const lines = readme.split('\n').filter((l) => /Expo|26\.4|0\.8[67]\b/.test(l));
+  assert.deepEqual(lines, ['Being tested, not confirmed yet: React Native 0.86 and 0.87, Expo, Xcode 26.4.']);
+  assert.match(readme, /Android, React Native 0\.88\.1: release builds for the 4 ABIs/);
+  assert.match(readme, /iOS, React Native 0\.88\.1, Xcode 26\.6: on the simulator/);
 });
 
 test('Node: one binary per platform, loaded by platform', () => {
@@ -319,7 +334,10 @@ test('afterdb-react: metadata, and a NOTICE without OpenSSL (the package ships n
   assert.doesNotMatch(notice, /OpenSSL/);
   assert.equal(walk(join(dir, 'package')).filter((f) => /openssl/i.test(f)).length, 0);
   assert.match(read('NOTICE'), /OpenSSL 3\.5\.9/, 'the realm package does ship OpenSSL');
-  assert.match(readFileSync(join(dir, 'package/README.md'), 'utf8'), /^# @pomwik\/afterdb-react\n/);
+  const readme = readFileSync(join(dir, 'package/README.md'), 'utf8');
+  assert.match(readme, /^# @pomwik\/afterdb-react\n/);
+  assert.match(readme, /^Modified by Pomwik, 2026: this file replaces the upstream README/m);
+  assert.equal(readme.indexOf('Realm'), readme.indexOf('Realm®'));
 });
 
 function hasClang() {

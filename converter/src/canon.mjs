@@ -4,6 +4,8 @@
 // write path in values.mjs on purpose.
 import { createHash } from 'node:crypto';
 import Realm from 'realm';
+import { q } from './model.mjs';
+import { objectKey, classOf, linkingObjects } from './sdk.mjs';
 
 const { ObjectId, Decimal128, UUID } = Realm.BSON;
 
@@ -55,7 +57,7 @@ function scalarR(type, v) {
 
 export function keyR(model, cls, obj) {
   const t = model.classes[cls];
-  if (t.key.synthetic) return Number(obj._objectKey());
+  if (t.key.synthetic) return Number(objectKey(obj));
   return scalarR(t.key.type, obj[t.key.column]);
 }
 
@@ -86,7 +88,7 @@ function mixedR(model, v) {
   if (v instanceof ObjectId) return { t: 'objectId', v: v.toHexString() };
   if (v instanceof UUID) return { t: 'uuid', v: v.toHexString(true) };
   if (v instanceof Realm.Object) {
-    const c = v.objectSchema().name;
+    const c = classOf(v);
     return { t: 'link', c, v: keyR(model, c, v) };
   }
   if (v instanceof Realm.Dictionary) {
@@ -119,7 +121,7 @@ function propR(model, d, v) {
 }
 
 // The file is opened without a schema, so backlinks are asked for by origin.
-const backlinksR = (model, d, obj) => [...obj.linkingObjects(d.source, d.sourceProp)].map((s) => keyR(model, d.source, s)).sort(cmpKey);
+const backlinksR = (model, d, obj) => [...linkingObjects(obj, d.source, d.sourceProp)].map((s) => keyR(model, d.source, s)).sort(cmpKey);
 
 /** Canonical object read from the SDK. Backlinks become sorted key arrays. */
 export function canonRealm(model, cls, obj) {
@@ -243,10 +245,10 @@ export function sqlReaders(db, model, cls) {
   const r = {};
   for (const [n, d] of Object.entries(t.props)) {
     if (d.kind === 'list') {
-      const cols = d.elem.type === 'object' ? '"target" AS v, NULL AS x' : `"value" AS v, ${d.elem.special ? `"${d.elem.special}"` : 'NULL'} AS x`;
-      r[n] = db.prepare(`SELECT ${cols} FROM "${d.table}" WHERE "owner" = ? ORDER BY "pos"`).raw();
+      const cols = d.elem.type === 'object' ? '"target" AS v, NULL AS x' : `"value" AS v, ${d.elem.special ? q(d.elem.special) : 'NULL'} AS x`;
+      r[n] = db.prepare(`SELECT ${cols} FROM ${q(d.table)} WHERE "owner" = ? ORDER BY "pos"`).raw();
     } else if (d.kind === 'backlink') {
-      r[n] = db.prepare(`SELECT "source" FROM "${d.view}" WHERE "owner" = ?`).pluck();
+      r[n] = db.prepare(`SELECT "source" FROM ${q(d.view)} WHERE "owner" = ?`).pluck();
     }
   }
   return r;

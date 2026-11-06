@@ -14,7 +14,16 @@ export function normalizeAppSchema(schema) {
 }
 
 const stored = (p) => p.mapTo || p.name;
-const typeOf = (p) => (p.objectType && p.type !== 'object' ? `${p.type}<${p.objectType}>` : p.objectType ?? p.type);
+// Optionality is part of the type, as in the SDK (`int` and `int?` differ).
+const typeOf = (p) => {
+  const opt = p.optional ? '?' : '';
+  if (p.type === 'object') return p.objectType + opt;
+  return p.objectType ? `${p.type}<${p.objectType}${opt}>` : p.type + opt;
+};
+const kindOf = (c) => (c.embedded ? 'embedded' : c.asymmetric ? 'asymmetric' : 'top-level');
+const indexOf = (p) => (p.indexed === 'full-text' ? 'full-text indexed' : p.indexed ? 'indexed' : 'not indexed');
+// The schemas are plain objects: `properties.toString` must not find Object.prototype.
+const has = (o, k) => Object.hasOwn(o, k);
 
 /**
  * @param {Array} fileSchema realm.schema of the file opened without a schema
@@ -39,6 +48,9 @@ export function mergeAppSchema(fileSchema, appSchema) {
       drift(`class ${a.name} is in the app schema but not in the file; no table.`);
       continue;
     }
+    if (kindOf(a) !== kindOf(f)) {
+      drift(`class ${a.name} is ${kindOf(f)} in the file, ${kindOf(a)} in the app schema; the file is used.`);
+    }
     if ((a.primaryKey ?? null) !== (f.primaryKey ?? null)) {
       drift(`${a.name}: primary key is ${f.primaryKey ?? 'none'} in the file, ${a.primaryKey ?? 'none'} in the app schema; the file is used.`);
     }
@@ -46,14 +58,18 @@ export function mergeAppSchema(fileSchema, appSchema) {
     const appStored = new Map(appProps.map((p) => [stored(p), p]));
     for (const p of Object.values(f.properties)) {
       const ap = appStored.get(p.name);
-      if (!ap) drift(`property ${f.name}.${p.name} is in the file but not in the app schema; converted from the file.`);
-      else if (typeOf(ap) !== typeOf(p)) drift(`${f.name}.${p.name} is ${typeOf(p)} in the file, ${typeOf(ap)} in the app schema; the file is used.`);
+      if (!ap) {
+        drift(`property ${f.name}.${p.name} is in the file but not in the app schema; converted from the file.`);
+        continue;
+      }
+      if (typeOf(ap) !== typeOf(p)) drift(`${f.name}.${p.name} is ${typeOf(p)} in the file, ${typeOf(ap)} in the app schema; the file is used.`);
+      if (indexOf(ap) !== indexOf(p)) drift(`${f.name}.${p.name} is ${indexOf(p)} in the file, ${indexOf(ap)} in the app schema; the file is used.`);
     }
     for (const ap of appProps) {
-      if (!f.properties[stored(ap)]) drift(`property ${a.name}.${stored(ap)} is in the app schema but not in the file; no column.`);
+      if (!has(f.properties, stored(ap))) drift(`property ${a.name}.${stored(ap)} is in the app schema but not in the file; no column.`);
     }
     for (const bl of Object.values(a.properties).filter((p) => p.type === 'linkingObjects')) {
-      if (f.properties[bl.name]) {
+      if (has(f.properties, bl.name)) {
         warnings.push(`${a.name}.${bl.name}: backlink has the name of a stored property; skipped.`);
         continue;
       }

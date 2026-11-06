@@ -3,7 +3,8 @@
 `keel-convert` reads a local object database file (the `.realm` format used by
 React Native apps) and writes an equivalent SQLite database. Then it checks the
 result against the source and writes a report. The source file is opened
-read-only and its SHA-256 is compared before and after.
+read-only and its SHA-256 is compared before and after. The tool never writes,
+renames or deletes it (see Output files).
 
 Private package, not published yet. License: Apache-2.0. Node 22+, ESM, no build step.
 
@@ -17,19 +18,28 @@ KEEL_KEY=<128 hex> npx keel-convert app.realm app.sqlite [--schema schema.mjs] [
 | `KEEL_KEY` (environment) | encryption key of the source, 64 bytes as 128 hex characters. Recommended way to pass the key |
 | `--key` | same key on the command line. Other users can see it in `ps`, so the CLI prints a warning; use `KEEL_KEY` |
 | `--schema` | the app's JS schema module (`export const schema = [...]` or a default export). Only used to add backlinks, which are not stored in the file (see Schema) |
-| `--report <dir>` | writes `report.json` and `report.md` |
-| `--sample <n>` | size of the field-by-field random sample (default 300) |
-| `--batch <n>` | objects per transaction (default 1000) |
+| `--report <dir>` | writes `report.json` and `report.md` to this folder (created if needed) |
+| `--sample <n>` | size of the field-by-field random sample: a whole number, default 300, 0 for no sample |
+| `--batch <n>` | objects per transaction: a whole number, at least 1, default 1000 |
 | `--force` | replace an existing output, once the new one is verified |
 
-Exit code: 0 verified, 2 verification failed, 1 error.
+Exit code: 0 verified, 2 verification failed, 1 error (bad option or path,
+unreadable source, report that cannot be written...). After exit 1, no output
+file is written and an old `<out>` is left as it was.
 
-Output files: the database is written to `<out>.partial`. If verification passes,
-it is renamed to `<out>` (with `--force`, this replaces the old file only at that
-moment; before that the old file is untouched). If verification fails, it is
-renamed to `<out>.failed` (replacing an older `.failed`) and `<out>` is not
-written, so a failed file cannot be shipped by mistake. On an error, `.partial`
-is deleted.
+Output files: the database is written to `<out>.partial` (an old `.partial`
+is deleted first). If verification passes, it is renamed to `<out>` (with
+`--force`, this replaces the old file only at that moment; before that the old
+file is untouched). If verification fails, it is renamed to `<out>.failed`
+(replacing an older `.failed`) and `<out>` is not written, so a failed file
+cannot be shipped by mistake. The report is written just before that rename. On
+an error (the report or the rename included), `.partial` and the new report
+files are deleted.
+
+Before any work, with or without `--force`, the run stops with exit 1 if
+`<out>`, `<out>.partial` or `<out>.failed` is the input file (same path, the
+same name in another case on a case-insensitive disk, or a link to it) or a
+folder, or if `--report` is a file or a folder that cannot be written.
 
 API: `convert(input, output, opts)`, `verifyFile(input, sqlite, opts)` (src/convert.mjs),
 `translate(query, { model, className, args, quirks })` (src/rql.mjs). The mapping
@@ -44,10 +54,12 @@ Classes or properties that the app no longer declares are still in the file
 
 `--schema` only adds backlinks (`linkingObjects`), which exist in the app code
 and not in the file. The app schema is also compared with the file; each
-difference is a `Schema drift:` warning in the report (class or property only in
-the file: converted; only in the app schema: no table or column; different type
-or primary key: the file wins). Verification reads the file the same way and
-also checks that every class and property of the file is in the output.
+difference is a `Schema drift:` warning in the report. Compared: classes and
+properties present on each side (only in the file: converted; only in the app
+schema: no table or column), embedded or top-level class, primary key, property
+type with optionality (`int` and `int?` differ, so do `int[]` and `int?[]`) and
+index. For the last four, the file wins. Verification reads the file the same
+way and also checks that every class and property of the file is in the output.
 
 ## Name conflicts
 
@@ -61,13 +73,17 @@ can also collide (list table `A__b` for class `A`, list `b`, next to a class
 - then columns, in property order (the primary key column never changes):
   `name` stays, `Name` becomes `Name_2`; a property `d__x` next to a double `d`
   becomes `d__x_2`;
-- then list tables, backlink views and indexes: `A__b_2`.
+- then list tables, then indexes, then backlink views: `A__b_2`. Backlink
+  views come only from `--schema`, so they are named last: with or without
+  `--schema`, tables and indexes get the same names.
 
-Each rename is a warning in the report and is recorded in `_keel_meta`
-(key `renames`: `[{kind, class, prop, from, to}]`) and in the model, which the
-query translator uses. The names depend only on the file's schema, so a
-second conversion gives the same names. One case still fails, with a clear
-message: a class without primary key that has a property named exactly `_rid`.
+Each rename (indexes included) is a warning in the report and is recorded in
+`_keel_meta` (key `renames`: `[{kind, class, prop, from, to}]`) and in the
+model, which the query translator uses. The names depend only on the file's
+schema (and, for views, on `--schema`), so a second conversion with the same
+options gives the same names. One case still fails, with a clear message: a
+class without primary key that has a property (or a backlink) named exactly
+`_rid`.
 
 ## Mapping
 
@@ -159,6 +175,7 @@ meaning.
 
 | behaviour | what the SDK does |
 |---|---|
+| `true` / `false` | literals only as `true`, `TRUE`, `false`, `FALSE`; `True` or `tRUE` is a property name (other keywords ignore case) |
 | `[c]` | folds ASCII and Latin-1 `À`–`Þ` only (`É`=`é`, `Ç`=`ç`; `Œ`≠`œ`, `Ÿ`≠`ÿ`, `ß`≠`SS`, `İ`≠`i`). SQLite `lower()` folds ASCII only and JS `toLowerCase()` folds too much; we emit `lower()` over 30 `replace()` calls |
 | string ordering, `LIKE` | byte order (= SQLite `BINARY`); `LIKE` uses `*` and `?` (one code point), `[` is literal (we use `GLOB` with `[` escaped) |
 | `@size` on a string | length in UTF-8 bytes |
@@ -209,18 +226,24 @@ The test fails on any unexplained mismatch or translator error.
 
 ## Tests
 
-`npm test` (about 6 s): conversion of every type and edge value (NaN, -0,
+`npm test` (about 11 s): conversion of every type and edge value (NaN, -0,
 ±Infinity, empty strings, É/Ç/ß/emoji, NFD, NUL character, 100 000-character
 string, dates before 1970, max decimal128), with and without app schema,
 encrypted source, tamper detection, CLI, differential queries, scale, schema
-drift (class or property missing from the app schema), backlinks from
-`--schema`, `--force` and `.failed` handling, name conflicts.
+drift (missing class or property, optionality, embedded or not, index),
+backlinks from `--schema`, `--force` and `.failed` handling, name conflicts.
+test/regressions.test.mjs replays the inputs of the adversarial review: output
+that is the input (same path, case variant, links), input named `<out>.partial`
+or `<out>.failed`, `--report` errors, bad `--batch`/`--sample`, output folder,
+names that must not change with `--schema`, index renames, backlinks named
+`toString`/`valueOf`, `"` in names, properties named `_objectKey`,
+`linkingObjects`, `objectSchema`, and properties named `True`/`False` in queries.
 
 Figures (darwin arm64, Node 22.19.0):
 
 | test | result |
 |---|---|
-| `npm test` | 16 tests: 15 pass, 0 fail, 1 skipped (200 000 objects) |
+| `npm test` | 28 tests: 27 pass, 0 fail, 1 skipped (200 000 objects) |
 | all-types fixture | 0 hash mismatches, 0 sample mismatches over > 1 000 fields, 0 FK violations, source SHA-256 unchanged |
 | scale 20 000 objects (2 lists each, self links) | convert + verify 1.9 s, peak RSS 187 MB |
 | scale 200 000 (`KEEL_SCALE_200K=1`) | convert + verify 16.3 s (load 7.4 s, verify 8.9 s), peak RSS 420 MB, 20 MB in, 19.7 MB out |

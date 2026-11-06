@@ -53,8 +53,18 @@ export function toMarkdown(r) {
   return L.join('\n');
 }
 
+/** Writes report.json and report.md; on an error neither is left. Returns the two paths. */
 export function writeReport(dir, report) {
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, 'report.json'), JSON.stringify(report, null, 2));
-  fs.writeFileSync(path.join(dir, 'report.md'), toMarkdown(report));
+  const files = [path.join(dir, 'report.json'), path.join(dir, 'report.md')];
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(files[0], JSON.stringify(report, null, 2));
+    fs.writeFileSync(files[1], toMarkdown(report));
+  } catch (e) {
+    for (const f of files) {
+      try { if (fs.lstatSync(f).isFile()) fs.rmSync(f); } catch { /* not there */ }
+    }
+    throw e;
+  }
+  return files;
 }

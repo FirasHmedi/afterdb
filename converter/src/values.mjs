@@ -1,5 +1,6 @@
 // Encoding of SDK values into SQLite values and JSON text (write path).
 import Realm from 'realm';
+import { objectKey, classOf } from './sdk.mjs';
 
 const { ObjectId, Decimal128, UUID } = Realm.BSON;
 
@@ -48,7 +49,7 @@ export function scalarToSql(type, v) {
 export function keyToSql(model, className, obj) {
   const t = model.classes[className];
   if (t.key.synthetic) {
-    const k = BigInt(obj._objectKey());
+    const k = BigInt(objectKey(obj));
     return k <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(k) : k;
   }
   return scalarToSql(t.key.type, obj[t.key.column]);
@@ -127,7 +128,7 @@ export function mixedToJson(model, v) {
   if (v instanceof ObjectId) return { t: 'objectId', v: v.toHexString() };
   if (v instanceof UUID) return { t: 'uuid', v: v.toString() };
   if (v instanceof Realm.Object) {
-    const c = v.objectSchema().name;
+    const c = classOf(v);
     return { t: 'link', c, v: keyToSql(model, c, v) };
   }
   if (v instanceof Realm.Dictionary) {

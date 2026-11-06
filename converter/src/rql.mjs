@@ -57,7 +57,11 @@ function tokenize(src) {
     if (id) {
       const w = id[0];
       i += w.length;
-      if (KEYWORDS.has(w.toUpperCase())) toks.push({ k: 'kw', v: w.toUpperCase() });
+      const up = w.toUpperCase();
+      // Like the SDK, true and false are literals only as true, TRUE, false or FALSE:
+      // True or tRUE is a property name. Other keywords ignore case.
+      const literal = (up !== 'TRUE' && up !== 'FALSE') || w === up || w === w.toLowerCase();
+      if (KEYWORDS.has(up) && literal) toks.push({ k: 'kw', v: up });
       else toks.push({ k: 'id', v: w });
       continue;
     }
@@ -239,7 +243,21 @@ function foldSql(expr) {
 // Query arguments go through the same conversion, so we apply it too.
 export const sdkDateMs = (ms) => (ms < 0 && ms % 1000 !== 0 ? Math.floor(ms / 1000) * 1000 + (ms % 1000) : ms);
 
-const isSdkObject = (v) => v !== null && typeof v === 'object' && typeof v.objectSchema === 'function' && typeof v._objectKey === 'function';
+// SDK objects are recognised by their methods. A stored property with the same
+// name (`_objectKey`, `objectSchema`) is an accessor on the class prototype that
+// hides the method, so look for a method (data property) along the prototype
+// chain instead of reading v._objectKey. This keeps realm out of the translator.
+function sdkMethod(v, name) {
+  for (let o = v; o; o = Object.getPrototypeOf(o)) {
+    const d = Object.getOwnPropertyDescriptor(o, name);
+    if (d && typeof d.value === 'function') return d.value;
+  }
+  return null;
+}
+const isSdkObject = (v) => v !== null && typeof v === 'object' && !!sdkMethod(v, 'objectSchema') && !!sdkMethod(v, '_objectKey');
+
+// Property lookup that ignores Object.prototype members (toString, valueOf...).
+const own = (o, k) => (Object.hasOwn(o, k) ? o[k] : undefined);
 
 const TEXT_OPS = new Set(['BEGINSWITH', 'ENDSWITH', 'CONTAINS', 'LIKE']);
 
@@ -270,10 +288,10 @@ export function translate(query, { model, className, args = [], quirks = true, s
   function toSql(leaf, v) {
     if (v === null || v === undefined) return null;
     if (isSdkObject(v)) {
-      const name = v.objectSchema().name;
-      const t = model.classes[name];
+      const name = sdkMethod(v, 'objectSchema').call(v).name;
+      const t = Object.hasOwn(model.classes, name) ? model.classes[name] : null;
       if (!t) throw new RqlError(`object of unknown class ${name}`);
-      return t.key.synthetic ? Number(v._objectKey()) : toSql({ type: t.key.type }, v[t.key.column]);
+      return t.key.synthetic ? Number(sdkMethod(v, '_objectKey').call(v)) : toSql({ type: t.key.type }, v[t.key.column]);
     }
     if (v instanceof Date) return quirks ? sdkDateMs(v.getTime()) : v.getTime();
     if (typeof v === 'boolean') return v ? 1 : 0;
@@ -301,7 +319,7 @@ export function translate(query, { model, className, args = [], quirks = true, s
       const s = segs[k];
       const last = k === segs.length - 1;
       if (json) {
-        const d = model.embedded[json.emb].props[s];
+        const d = own(model.embedded[json.emb].props, s);
         if (!d) throw new RqlError(`unknown property ${json.emb}.${s}`);
         const path = `${json.path}.${JSON.stringify(s)}`;
         if (d.kind === 'scalar') {
@@ -316,7 +334,7 @@ export function translate(query, { model, className, args = [], quirks = true, s
         }
         throw new Unsupported(`embedded ${d.kind} in a key path`);
       }
-      const d = cls.props[s];
+      const d = own(cls.props, s);
       if (!d) throw new RqlError(`unknown property ${cls.name}.${s}`);
       if (d.kind === 'scalar') {
         if (!last) throw new RqlError(`${cls.name}.${s} is not a link`);

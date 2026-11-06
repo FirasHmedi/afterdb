@@ -74,6 +74,11 @@ export function buildModel(schema) {
   };
   // Class tables first, in code-unit order, so a class keeps its name before generated ones.
   const global = new Names([META_TABLE]);
+  const generated = (cls, prop, kind, want) => {
+    const g = global.take(want);
+    if (g !== want) named({ kind, class: cls, prop, from: want, to: g });
+    return g;
+  };
   const tableOf = new Map();
   for (const cls of [...schema].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
     if (cls.embedded || cls.asymmetric) continue;
@@ -159,11 +164,6 @@ export function buildModel(schema) {
       if (c !== want) named({ kind: 'column', class: cls.name, prop: n, from: want, to: c });
       return c;
     };
-    const generated = (n, kind, want) => {
-      const g = global.take(want);
-      if (g !== want) named({ kind, class: cls.name, prop: n, from: want, to: g });
-      return g;
-    };
 
     for (const [n, d] of Object.entries(props)) {
       if (d.kind === 'scalar') {
@@ -182,7 +182,7 @@ export function buildModel(schema) {
         const notNull = d.kind === 'embedded' ? d.many : d.ctype !== 'mixed';
         table.columns.push({ name: d.column, sql: 'TEXT', notNull, check: `json_valid(${q(d.column)})` });
       } else if (d.kind === 'list') {
-        d.table = generated(n, 'list table', `${tname}__${n}`);
+        d.table = generated(cls.name, n, 'list table', `${tname}__${n}`);
         const cols = [
           { name: 'owner', sql: key.sql, notNull: true, fk: { table: tname, column: key.column, onDelete: 'CASCADE' } },
           { name: 'pos', sql: 'INTEGER', notNull: true },
@@ -196,8 +196,7 @@ export function buildModel(schema) {
         }
         table.lists.push({ table: d.table, prop: n, columns: cols });
       } else if (d.kind === 'backlink') {
-        d.view = generated(n, 'backlink view', `${tname}__${n}`);
-        table.views.push({ view: d.view, prop: n });
+        table.views.push({ prop: n }); // named at the end, see below
       }
     }
     const names = new Set();
@@ -212,8 +211,8 @@ export function buildModel(schema) {
   for (const t of Object.values(model.classes)) {
     for (const [n, d] of Object.entries(t.props)) {
       if (d.kind !== 'backlink') continue;
-      const src = model.classes[d.source];
-      const sp = src?.props[d.sourceProp];
+      const src = Object.hasOwn(model.classes, d.source) ? model.classes[d.source] : null;
+      const sp = src && Object.hasOwn(src.props, d.sourceProp) ? src.props[d.sourceProp] : null;
       const ok = sp && ((sp.kind === 'link' && sp.target === t.name) || (sp.kind === 'list' && sp.elem.target === t.name) ||
         (sp.kind === 'json' && (sp.ctype === 'set' || sp.ctype === 'dictionary') && sp.elem.target === t.name));
       if (!ok) {
@@ -224,6 +223,19 @@ export function buildModel(schema) {
         d.sourceKind = sp.kind === 'json' ? sp.ctype : sp.kind;
       }
     }
+  }
+  // Then indexes, then backlink views. Views come only from --schema, so naming
+  // them last keeps every table and index name the same with or without it.
+  for (const t of Object.values(model.classes)) {
+    for (const l of t.lists) {
+      if (l.columns.some((c) => c.name === 'target')) l.index = generated(t.name, l.prop, 'index', l.table + '__target');
+    }
+    for (const [n, d] of Object.entries(t.props)) {
+      if (d.kind === 'link' || (d.kind === 'scalar' && d.indexed)) d.index = generated(t.name, n, 'index', t.table + '__' + n);
+    }
+  }
+  for (const t of Object.values(model.classes)) {
+    for (const v of t.views) v.view = t.props[v.prop].view = generated(t.name, v.prop, 'backlink view', `${t.table}__${v.prop}`);
   }
   model.renames = renames;
   for (const t of Object.values(model.classes)) {
@@ -251,12 +263,6 @@ function colDDL(c) {
 export function ddl(model) {
   const tables = [];
   const after = [];
-  const names = new Names([META_TABLE]);
-  for (const t of Object.values(model.classes)) {
-    names.take(t.table);
-    for (const l of t.lists) names.take(l.table);
-    for (const v of t.views) names.take(t.props[v.prop].view);
-  }
   for (const t of Object.values(model.classes)) {
     const cols = t.columns.map(colDDL);
     tables.push(`CREATE TABLE ${q(t.table)} (\n  ${cols.join(',\n  ')}\n)${t.key.synthetic ? '' : ' WITHOUT ROWID'};`);
@@ -264,12 +270,10 @@ export function ddl(model) {
       const cols = l.columns.map(colDDL);
       cols.push('PRIMARY KEY ("owner", "pos")');
       tables.push(`CREATE TABLE ${q(l.table)} (\n  ${cols.join(',\n  ')}\n) WITHOUT ROWID;`);
-      if (l.columns.some((c) => c.name === 'target')) after.push(`CREATE INDEX ${q(names.take(l.table + '__target'))} ON ${q(l.table)}("target");`);
+      if (l.index) after.push(`CREATE INDEX ${q(l.index)} ON ${q(l.table)}("target");`);
     }
-    for (const [n, d] of Object.entries(t.props)) {
-      if (d.kind === 'link' || (d.kind === 'scalar' && d.indexed)) {
-        after.push(`CREATE INDEX ${q(names.take(t.table + '__' + n))} ON ${q(t.table)}(${q(d.column)});`);
-      }
+    for (const d of Object.values(t.props)) {
+      if (d.index) after.push(`CREATE INDEX ${q(d.index)} ON ${q(t.table)}(${q(d.column)});`);
     }
   }
   for (const t of Object.values(model.classes)) {

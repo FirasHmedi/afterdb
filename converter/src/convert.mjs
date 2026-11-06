@@ -55,6 +55,44 @@ async function openSource(input, { key }) {
   return { realm, cleanup };
 }
 
+/** fs.Stats of a path (links followed), or null when nothing is there. */
+function statOf(p) {
+  try {
+    return fs.statSync(p, { bigint: true });
+  } catch (e) {
+    if (e.code === 'ENOENT' || e.code === 'ENOTDIR') return null;
+    throw e;
+  }
+}
+const sameFile = (a, b) => !!a && !!b && a.dev === b.dev && a.ino === b.ino;
+const rmQuiet = (p) => { try { fs.rmSync(p, { force: true }); } catch { /* best effort */ } };
+
+/**
+ * The tool deletes an old <out>.partial, writes the new file there, then renames
+ * it to <out> or <out>.failed. None of these may be the input: same path, the
+ * same name in another case on a case-insensitive disk, or a link to it. None may
+ * be a folder either. Checked before any work, with or without --force.
+ */
+function checkPaths(input, output, report) {
+  const src = statOf(input);
+  for (const p of [output, output + '.partial', output + '.failed']) {
+    const s = statOf(p);
+    if (sameFile(s, src)) throw new Error(`${p} is the input file; choose another output name`);
+    if (s?.isDirectory()) throw new Error(`${p} is a folder; give a file name for the output`);
+  }
+  if (report) {
+    const s = statOf(report);
+    if (s && !s.isDirectory()) throw new Error(`--report must be a folder: ${report}`);
+    if (s) {
+      try { fs.accessSync(report, fs.constants.W_OK); } catch { throw new Error(`--report folder is not writable: ${report}`); }
+    }
+    for (const f of ['report.json', 'report.md']) {
+      if (sameFile(statOf(path.join(report, f)), src)) throw new Error(`${path.join(report, f)} is the input file; choose another report folder`);
+    }
+  }
+  return src;
+}
+
 /** Row values for one object, in model column order. */
 function rowOf(model, t, obj, stats) {
   const row = [];
@@ -88,12 +126,16 @@ export async function convert(input, output, opts = {}) {
   const timings = {};
   const warnings = [];
   const batchSize = opts.batchSize ?? 1000;
+  if (!Number.isInteger(batchSize) || batchSize < 1) throw new Error(`batch size must be a whole number of at least 1, got ${opts.batchSize}`);
+  const sample = opts.sample ?? 300;
+  if (!Number.isInteger(sample) || sample < 0) throw new Error(`sample size must be a whole number of at least 0, got ${opts.sample}`);
   const key = typeof opts.key === 'string' ? parseKey(opts.key) : opts.key;
   const schema = typeof opts.schema === 'string' ? await loadSchema(opts.schema) : opts.schema;
   let peakRss = process.memoryUsage().rss;
   const sampleRss = () => { peakRss = Math.max(peakRss, process.memoryUsage().rss); };
 
   if (!fs.existsSync(input)) throw new Error(`input not found: ${input}`);
+  const src = checkPaths(input, output, opts.report);
   // With --force the old output stays in place until the new one is verified.
   if (fs.existsSync(output) && !opts.force) throw new Error(`output exists: ${output} (use --force)`);
   const shaBefore = await fileSha256(input);
@@ -104,10 +146,11 @@ export async function convert(input, output, opts = {}) {
   const { realm, cleanup } = await openSource(input, { key });
   timings.openMs = performance.now() - t;
   const partial = output + '.partial';
-  fs.rmSync(partial, { force: true });
-  const db = new Database(partial);
+  let db;
   let result;
   try {
+    fs.rmSync(partial, { force: true }); // left by an interrupted run; checked above: not the input
+    db = new Database(partial);
     let source = realm.schema;
     if (schema) {
       const m = mergeAppSchema(realm.schema, schema);
@@ -178,51 +221,62 @@ export async function convert(input, output, opts = {}) {
 
     if (opts._beforeVerify) opts._beforeVerify(db); // test hook
     t = performance.now();
-    const verification = await verify(realm, db, model, { sample: opts.sample ?? 300, seed: opts.seed ?? 1 });
+    const verification = await verify(realm, db, model, { sample, seed: opts.seed ?? 1 });
     sampleRss();
     timings.verifyMs = performance.now() - t;
     result = { model, verification, loadCounts };
   } catch (e) {
-    db.close();
-    fs.rmSync(partial, { force: true });
+    db?.close();
+    rmQuiet(partial);
     throw e;
   } finally {
-    if (db.open) {
+    if (db?.open) {
       db.pragma('journal_mode = DELETE');
       db.close();
     }
     realm.close();
     cleanup();
   }
-  t = performance.now();
-  const shaAfter = await fileSha256(input);
-  timings.hashAfterMs = performance.now() - t;
-  // Only a verified file gets the final name (replacing any old one). A failed
-  // one is kept as <out>.failed for inspection, so it cannot be shipped by mistake.
-  const ok = shaBefore === shaAfter && result.verification.ok;
-  const final = ok ? output : output + '.failed';
-  fs.renameSync(partial, final);
-  if (!ok) warnings.push(`Verification failed: output kept as ${final}; ${output} was not written.`);
-  timings.totalMs = performance.now() - t0;
-  sampleRss();
+  // Everything below happens before the rename: the report is written first, so
+  // if anything fails (hash, report, rename) the run is an error, .partial and
+  // the new report files are deleted, and any old <out> is left as it was.
+  let reportFiles = [];
+  try {
+    t = performance.now();
+    const shaAfter = await fileSha256(input);
+    timings.hashAfterMs = performance.now() - t;
+    // Only a verified file gets the final name (replacing any old one). A failed
+    // one is kept as <out>.failed for inspection, so it cannot be shipped by mistake.
+    const ok = shaBefore === shaAfter && result.verification.ok;
+    const final = ok ? output : output + '.failed';
+    if (!ok) warnings.push(`Verification failed: output kept as ${final}; ${output} was not written.`);
+    timings.totalMs = performance.now() - t0;
+    sampleRss();
 
-  const report = {
-    tool: `@keelstore/converter ${TOOL_VERSION}`,
-    createdAt: new Date().toISOString(),
-    input: { path: path.resolve(input), bytes: inputSize, sha256Before: shaBefore, sha256After: shaAfter, unchanged: shaBefore === shaAfter, encrypted: !!key },
-    output: { path: path.resolve(final), bytes: fs.statSync(final).size },
-    schemaSource: schema ? 'file, plus backlinks from the app schema (--schema)' : 'file',
-    classes: Object.keys(result.model.classes).length,
-    embeddedClasses: Object.keys(result.model.embedded).length,
-    verification: result.verification,
-    warnings,
-    timings: Object.fromEntries(Object.entries(timings).map(([k, v]) => [k, Math.round(v)])),
-    peakRssMB: Math.round(peakRss / 1048576),
-    platform: `${os.platform()} ${os.arch()}, node ${process.version}`,
-  };
-  report.ok = ok;
-  if (opts.report) writeReport(opts.report, report);
-  return report;
+    const report = {
+      tool: `@keelstore/converter ${TOOL_VERSION}`,
+      createdAt: new Date().toISOString(),
+      input: { path: path.resolve(input), bytes: inputSize, sha256Before: shaBefore, sha256After: shaAfter, unchanged: shaBefore === shaAfter, encrypted: !!key },
+      output: { path: path.resolve(final), bytes: fs.statSync(partial).size },
+      schemaSource: schema ? 'file, plus backlinks from the app schema (--schema)' : 'file',
+      classes: Object.keys(result.model.classes).length,
+      embeddedClasses: Object.keys(result.model.embedded).length,
+      verification: result.verification,
+      warnings,
+      timings: Object.fromEntries(Object.entries(timings).map(([k, v]) => [k, Math.round(v)])),
+      peakRssMB: Math.round(peakRss / 1048576),
+      platform: `${os.platform()} ${os.arch()}, node ${process.version}`,
+    };
+    report.ok = ok;
+    if (opts.report) reportFiles = writeReport(opts.report, report);
+    if (sameFile(statOf(final), src)) throw new Error(`${final} is the input file; choose another output name`);
+    fs.renameSync(partial, final);
+    return report;
+  } catch (e) {
+    rmQuiet(partial);
+    for (const f of reportFiles) rmQuiet(f);
+    throw e;
+  }
 }
 
 /**

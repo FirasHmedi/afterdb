@@ -199,6 +199,21 @@ test('Android: OpenSSL is bundled for every ABI and used before any download', (
   }
 });
 
+test('Android: the OpenSSL archives record no local account, and their include.cmake is upstream\'s', () => {
+  for (const abi of Object.keys(ANDROID_ABIS)) {
+    const archive = join(pkg, 'prebuilds/android', abi, 'deps', `openssl-${OPENSSL}-${ANDROID_ABIS[abi]}-android.tar.gz`);
+    // owner column(s) of tar -tv: « 0/0 » for GNU tar, « 0 0 » for bsdtar
+    const owners = new Set(execFileSync('tar', ['-tvzf', archive], { encoding: 'utf8' }).trim().split('\n').map((l) => {
+      const f = l.trim().split(/\s+/);
+      return f[1].includes('/') ? f[1] : `${f[2]}/${f[3]}`;
+    }));
+    assert.deepEqual([...owners], ['0/0'], abi);
+    // byte-identical to the include.cmake of realm's openssl-3.3.1 archives
+    const includeCmake = execFileSync('tar', ['-xOzf', archive, './include.cmake']);
+    assert.equal(createHash('sha256').update(includeCmake).digest('hex'), '00510e01b73e57960852921903df79ca5c9e54086483a349d3d05dff7d1cf28a', abi);
+  }
+});
+
 /** Runs realm_acquire_dependency(openssl) of the AcquireRealmDependency.cmake in `share` with `cmake -P`, in a new folder */
 function acquireOpenSSL(share) {
   const dir = mkdtempSync(join(tmpdir(), 'afterdb-cmake-'));

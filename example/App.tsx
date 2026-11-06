@@ -51,6 +51,30 @@ function countLaunch(): string {
   return launchText;
 }
 
+// The result is also written to a realm file, so CI can read it from the simulator or emulator storage
+// (scripts/read-selfcheck.mjs) without any UI testing tool.
+class SelfCheckResult extends Realm.Object<SelfCheckResult> {
+  _id!: string;
+  text!: string;
+  launches!: string;
+  at!: Date;
+  static schema: Realm.ObjectSchema = {
+    name: 'SelfCheckResult',
+    primaryKey: '_id',
+    properties: { _id: 'string', text: 'string', launches: 'string', at: 'date' },
+  };
+}
+
+function saveResult(text: string, launches: string) {
+  try {
+    const r = new Realm({ schema: [SelfCheckResult], path: 'selfcheck-result.realm' });
+    r.write(() => r.create(SelfCheckResult, { _id: 'last', text, launches, at: new Date() }, Realm.UpdateMode.Modified));
+    r.close();
+  } catch {
+    // the screen still shows the result
+  }
+}
+
 function SelfCheck() {
   const realm = useRealm();
   const done = useQuery(Task, (tasks) => tasks.filtered('done == true'));
@@ -86,6 +110,10 @@ function SelfCheck() {
       setResult(`KEELSTORE_SELF_CHECK_ERROR ${String(e)}`);
     }
   }, [realm]);
+
+  useEffect(() => {
+    if (result !== 'running') saveResult(result, launches);
+  }, [result, launches]);
 
   return (
     <>

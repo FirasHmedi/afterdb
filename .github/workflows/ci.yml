@@ -1,6 +1,7 @@
 name: CI
 
-# Packages, tests, Android build of the example app with the 16 KB check, and the iOS build.
+# Packages, tests, Android build of the example app with the 16 KB check; started by hand: the app run on
+# Android emulators and the iOS builds and simulator run.
 # The packages are built once (job packages) and the exact same tarballs are used by the android and ios jobs.
 # iOS runs on macOS runners, which cost 10x the minutes of a private repository: it only runs when started by hand
 # (Actions tab) until the repository is public.
@@ -11,7 +12,11 @@ on:
   workflow_dispatch:
     inputs:
       ios:
-        description: 'Also build iOS (macOS runners)'
+        description: 'Also build and run iOS (macOS runners)'
+        type: boolean
+        default: true
+      emulators:
+        description: 'Also run the Android app on emulators (Android 7, 11, 16, and 16 with 16 KB pages)'
         type: boolean
         default: true
 
@@ -161,6 +166,49 @@ jobs:
           path: example/android/app/build/outputs/apk/release/app-release.apk
           retention-days: 7
 
+  # Runs the release APK of the android job on emulators and checks the self-check screen twice
+  # (KEELSTORE_SELF_CHECK_OK, then launches 1 and 2 after a force-stop). Started by hand (Actions tab).
+  android-run:
+    if: github.event_name == 'workflow_dispatch' && inputs.emulators
+    needs: android
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { api: 24, target: google_apis, label: 'Android 7 (minSdk)' }
+          - { api: 30, target: google_apis, label: 'Android 11' }
+          - { api: 36, target: google_apis, label: 'Android 16' }
+          - { api: 36, target: google_apis_ps16k, label: 'Android 16, 16 KB pages' }
+    name: android-run (${{ matrix.label }})
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: example-release-apk
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Self-check on the emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          target: ${{ matrix.target }}
+          arch: x86_64
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
+          script: bash scripts/android-selfcheck.sh app-release.apk com.keelexample android-${{ matrix.api }}-${{ matrix.target }}.png
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-run-${{ matrix.api }}-${{ matrix.target }}
+          path: android-*.png
+          if-no-files-found: ignore
+          retention-days: 7
+
   ios:
     if: github.event_name == 'workflow_dispatch' && inputs.ios
     needs: packages
@@ -221,15 +269,60 @@ jobs:
       - name: pod install
         working-directory: example/ios
         run: bundle install && bundle exec pod install
-      - name: Simulator build (Debug)
+      - name: Boot an iPhone simulator (newest iOS runtime)
+        run: |
+          udid=$(xcrun simctl list devices available -j | python3 -c '
+          import json, re, sys
+          d = json.load(sys.stdin)["devices"]
+          ios = sorted((k for k in d if "iOS" in k), key=lambda k: [int(x) for x in re.findall(r"\d+", k)])
+          for rt in reversed(ios):
+              phones = [x for x in d[rt] if x["name"].startswith("iPhone")]
+              if phones:
+                  print(phones[0]["udid"], rt, phones[0]["name"], file=sys.stderr)
+                  print(phones[0]["udid"])
+                  break
+          ')
+          [ -n "$udid" ] || { echo "::error::no iPhone simulator available"; exit 1; }
+          xcrun simctl bootstatus "$udid" -b
+          echo "SIM_UDID=$udid" >> "$GITHUB_ENV"
+      - name: Simulator build (Release)
         working-directory: example/ios
         run: |
           # full log in a file: on failure, print the errors and the end of the log
-          if ! xcodebuild -workspace KeelExample.xcworkspace -scheme KeelExample -configuration Debug \
-              -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build \
-              > xcodebuild.log 2>&1; then
-            grep -E '(error|fatal error):|BUILD FAILED' xcodebuild.log | head -100 || true
-            tail -80 xcodebuild.log
+          if ! xcodebuild -workspace KeelExample.xcworkspace -scheme KeelExample -configuration Release \
+              -destination "id=$SIM_UDID" -derivedDataPath build ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO build \
+              > xcodebuild-sim.log 2>&1; then
+            grep -E '(error|fatal error):|BUILD FAILED' xcodebuild-sim.log | head -100 || true
+            tail -80 xcodebuild-sim.log
             exit 1
           fi
-          tail -20 xcodebuild.log
+          tail -5 xcodebuild-sim.log
+      - name: Self-check on the simulator (2 launches, result read from the app's realm file)
+        working-directory: example
+        run: |
+          bash ../scripts/ios-selfcheck.sh ios/build/Build/Products/Release-iphonesimulator/KeelExample.app \
+            org.reactjs.native.example.KeelExample "$GITHUB_WORKSPACE/ios-${{ matrix.frameworks }}.png"
+      - name: Device build (Release, generic iOS device, no signing)
+        working-directory: example/ios
+        run: |
+          if ! xcodebuild -workspace KeelExample.xcworkspace -scheme KeelExample -configuration Release \
+              -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build \
+              > xcodebuild-device.log 2>&1; then
+            grep -E '(error|fatal error):|BUILD FAILED' xcodebuild-device.log | head -100 || true
+            tail -80 xcodebuild-device.log
+            exit 1
+          fi
+          tail -5 xcodebuild-device.log
+          app=build/Build/Products/Release-iphoneos/KeelExample.app
+          lipo -info "$app/KeelExample"
+          # with frameworks, the Realm binding must be embedded in the app
+          find "$app" -maxdepth 2 -name '*.framework' | sed 's|.*/||' | sort | tr '\n' ' '; echo
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-${{ matrix.frameworks }}
+          path: |
+            ios-*.png
+            example/ios/xcodebuild-*.log
+          if-no-files-found: ignore
+          retention-days: 7

@@ -175,6 +175,15 @@ typedef int Dummy_Type_For_PROPAGATE_POD_FROM_TEMPLATE_ARGUMENT`,
   // 6. Android: OpenSSL is shipped in the package instead of being downloaded at compile time
   for (const [abi, arch] of Object.entries(ANDROID_ABIS)) {
     const name = `openssl-${OPENSSL}-${arch}-android.tar.gz`;
+    // Inside a function, CMAKE_CURRENT_LIST_DIR is the caller's folder: record this file's folder when it is included
+    patch(
+      join(pkg, 'prebuilds/android', abi, 'share/cmake/Realm/AcquireRealmDependency.cmake'),
+      'function(realm_acquire_dependency dep_name dep_version out_dep_cmake)',
+      `# ${MARK}: folder of the OpenSSL archives shipped in the package
+set(KEEL_BUNDLED_DEPS_DIR "\${CMAKE_CURRENT_LIST_DIR}/../../../deps")
+
+function(realm_acquire_dependency dep_name dep_version out_dep_cmake)`,
+    );
     const buf = await download(OPENSSL_URL(arch), join(CACHE, 'openssl', name));
     mkdirSync(join(pkg, 'prebuilds/android', abi, 'deps'), { recursive: true });
     writeFileSync(join(pkg, 'prebuilds/android', abi, 'deps', name), buf);
@@ -192,10 +201,14 @@ typedef int Dummy_Type_For_PROPAGATE_POD_FROM_TEMPLATE_ARGUMENT`,
 `,
       `        # ${MARK}: use the copy shipped in the package, download only as a fallback
         set(DEP_FILE_NAME "\${dep_name}-\${dep_version}-\${_target_architecture_\${CMAKE_SYSTEM_NAME}_\${_target_architecture}}-\${_target_platform_name_\${CMAKE_SYSTEM_NAME}}.tar.gz")
-        set(DEP_LOCAL "\${CMAKE_CURRENT_LIST_DIR}/../../../deps/\${DEP_FILE_NAME}")
+        set(DEP_LOCAL "\${KEEL_BUNDLED_DEPS_DIR}/\${DEP_FILE_NAME}")
         if(EXISTS "\${DEP_LOCAL}")
             message(STATUS "Using bundled \${DEP_LOCAL}")
-            file(COPY_FILE "\${DEP_LOCAL}" "\${CMAKE_CURRENT_BINARY_DIR}/\${dep_name}/\${dep_name}.tar.gz")
+            file(MAKE_DIRECTORY "\${CMAKE_CURRENT_BINARY_DIR}/\${dep_name}")
+            file(COPY_FILE "\${DEP_LOCAL}" "\${CMAKE_CURRENT_BINARY_DIR}/\${dep_name}/\${dep_name}.tar.gz" RESULT copy_result)
+            if(NOT copy_result STREQUAL "0")
+                message(FATAL_ERROR "Copying \${DEP_LOCAL} failed: \${copy_result}")
+            endif()
         else()
             set(DEP_URL "https://static.realm.io/downloads/dependencies/\${dep_name}/\${dep_version}/\${DEP_FILE_NAME}")
             message(STATUS "Getting \${DEP_URL}...")

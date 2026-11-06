@@ -92,6 +92,19 @@ test('Android: OpenSSL is bundled for every ABI and used before any download', (
   }
 });
 
+test('Android: the CMake script really extracts the bundled OpenSSL (no NDK needed)', { skip: !cmakeBin() }, () => {
+  const dir = mkdtempSync(join(tmpdir(), 'keel-cmake-'));
+  const share = join(pkg, 'prebuilds/android/arm64-v8a/share/cmake/Realm');
+  writeFileSync(
+    join(dir, 'check.cmake'),
+    `set(ANDROID ON)\nset(CMAKE_SYSTEM_NAME Android)\nset(CMAKE_ANDROID_ARCH_ABI arm64-v8a)\ninclude("${share}/AcquireRealmDependency.cmake")\nrealm_acquire_dependency(openssl 3.3.1 OUT)\nif(NOT EXISTS "\${OUT}")\n  message(FATAL_ERROR "include.cmake missing: \${OUT}")\nendif()\nmessage(STATUS "OK \${OUT}")\n`,
+  );
+  const log = execFileSync(cmakeBin(), ['-P', join(dir, 'check.cmake')], { cwd: dir, encoding: 'utf8', stdio: 'pipe' });
+  assert.ok(existsSync(join(dir, 'openssl/include.cmake')));
+  assert.ok(existsSync(join(dir, 'openssl/lib/libcrypto.a')));
+  assert.doesNotMatch(log, /Getting https:\/\/static\.realm\.io/);
+});
+
 test('install offline as « realm » through an alias, open, write, query, encrypt (Node)', () => {
   const app = mkdtempSync(join(tmpdir(), 'keel-app-'));
   writeFileSync(join(app, 'package.json'), JSON.stringify({ name: 'app', private: true, type: 'module', dependencies: { realm: `file:${tarball}` } }));
@@ -140,4 +153,14 @@ function hasClang() {
   } catch {
     return false;
   }
+}
+
+function cmakeBin() {
+  for (const c of ['cmake', join(process.env.ANDROID_HOME ?? join(process.env.HOME ?? '', 'Library/Android/sdk'), 'cmake/3.22.1/bin/cmake')]) {
+    try {
+      execFileSync(c, ['--version'], { stdio: 'pipe' });
+      return c;
+    } catch {}
+  }
+  return null;
 }

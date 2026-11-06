@@ -72,11 +72,17 @@ jobs:
       - name: Release build, 4 ABIs
         working-directory: example/android
         run: ./gradlew assembleRelease --console=plain | tee gradle.log
-      - name: Nothing downloaded from static.realm.io during the build
-        working-directory: example/android
+      - name: OpenSSL comes from the package (same bytes, version 3.5.9), not from static.realm.io
+        working-directory: example/node_modules/realm
         run: |
-          grep -q "Using bundled" gradle.log
-          ! grep -q "Getting https://static.realm.io" gradle.log
+          n=0
+          for abi in arm64-v8a armeabi-v7a x86 x86_64; do
+            d=$(ls -d binding/android/.cxx/Release/*/$abi | head -1)
+            cmp "$d/openssl/openssl.tar.gz" prebuilds/android/$abi/deps/openssl-*-android.tar.gz
+            grep -q 'OpenSSL 3\.5\.9' "$d/openssl/include/openssl/opensslv.h"
+            echo "$abi: bundled OpenSSL 3.5.9"; n=$((n+1))
+          done
+          [ "$n" -eq 4 ]
       - name: 16 KB page alignment of every native library
         run: node scripts/check-16kb.mjs example/android/app/build/outputs/apk/release/app-release.apk
       - uses: actions/upload-artifact@v4

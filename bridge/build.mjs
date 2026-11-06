@@ -255,16 +255,18 @@ typedef int Dummy_Type_For_PROPAGATE_POD_FROM_TEMPLATE_ARGUMENT`,
     const name = `openssl-${OPENSSL}-${arch}-android.tar.gz`;
     const built = join(CACHE, 'openssl', name);
     if (!existsSync(built)) throw new Error(`${built} missing: run bridge/openssl/build-openssl.sh ${OPENSSL}`);
-    // Inside a function, CMAKE_CURRENT_LIST_DIR is the caller's folder: record this file's folder when it is included
+    const buf = readFileSync(built);
+    // Inside a function, CMAKE_CURRENT_LIST_DIR is the caller's folder: record this file's folder when it is included.
+    // The SHA-256 of the archive is recorded too: CMake checks it before extracting the archive (brief item F5).
     patch(
       join(pkg, 'prebuilds/android', abi, 'share/cmake/Realm/AcquireRealmDependency.cmake'),
       'function(realm_acquire_dependency dep_name dep_version out_dep_cmake)',
-      `# ${MARK}: folder of the OpenSSL archives shipped in the package
+      `# ${MARK}: folder of the OpenSSL archives shipped in the package, and the SHA-256 of each
 set(AFTERDB_BUNDLED_DEPS_DIR "\${CMAKE_CURRENT_LIST_DIR}/../../../deps")
+set(AFTERDB_BUNDLED_SHA256_${name} "${sha256(buf)}")
 
 function(realm_acquire_dependency dep_name dep_version out_dep_cmake)`,
     );
-    const buf = readFileSync(built);
     mkdirSync(join(pkg, 'prebuilds/android', abi, 'deps'), { recursive: true });
     writeFileSync(join(pkg, 'prebuilds/android', abi, 'deps', name), buf);
     checksums.push(`${sha256(buf)}  prebuilds/android/${abi}/deps/${name} (built from openssl-${OPENSSL}.tar.gz)`);
@@ -286,11 +288,19 @@ function(realm_acquire_dependency dep_name dep_version out_dep_cmake)`,
             message(FATAL_ERROR "Downloading \${url}... Failed. Status: \${download_status}")
         endif()
 `,
-      `        # ${MARK}: use the copy shipped in the package, download only as a fallback
+      `        # ${MARK}: use the copy shipped in the package once its SHA-256 is checked, download only as a fallback
         set(DEP_FILE_NAME "\${dep_name}-\${dep_version}-\${_target_architecture_\${CMAKE_SYSTEM_NAME}_\${_target_architecture}}-\${_target_platform_name_\${CMAKE_SYSTEM_NAME}}.tar.gz")
         set(DEP_LOCAL "\${AFTERDB_BUNDLED_DEPS_DIR}/\${DEP_FILE_NAME}")
         if(EXISTS "\${DEP_LOCAL}")
-            message(STATUS "Using bundled \${DEP_LOCAL}")
+            set(DEP_SHA256_EXPECTED "\${AFTERDB_BUNDLED_SHA256_\${DEP_FILE_NAME}}")
+            if("\${DEP_SHA256_EXPECTED}" STREQUAL "")
+                message(FATAL_ERROR "No SHA-256 recorded for the bundled \${DEP_LOCAL}")
+            endif()
+            file(SHA256 "\${DEP_LOCAL}" DEP_SHA256_ACTUAL)
+            if(NOT "\${DEP_SHA256_ACTUAL}" STREQUAL "\${DEP_SHA256_EXPECTED}")
+                message(FATAL_ERROR "SHA-256 mismatch for the bundled \${DEP_LOCAL}: \${DEP_SHA256_ACTUAL}, expected \${DEP_SHA256_EXPECTED}. The package is damaged: reinstall it.")
+            endif()
+            message(STATUS "Using bundled \${DEP_LOCAL} (SHA-256 checked)")
             file(MAKE_DIRECTORY "\${CMAKE_CURRENT_BINARY_DIR}/\${dep_name}-\${dep_version}")
             file(COPY_FILE "\${DEP_LOCAL}" "\${CMAKE_CURRENT_BINARY_DIR}/\${dep_name}-\${dep_version}/\${dep_name}.tar.gz" RESULT copy_result)
             if(NOT copy_result STREQUAL "0")

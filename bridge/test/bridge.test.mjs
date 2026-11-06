@@ -1,7 +1,8 @@
 // Tests of the built packages (run `npm run build` first). Usage: node --test bridge/test
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
@@ -190,21 +191,63 @@ test('Android: OpenSSL is bundled for every ABI and used before any download', (
     assert.match(read(`prebuilds/android/${abi}/share/cmake/Realm/RealmConfig.cmake`), new RegExp(`realm_acquire_dependency\\(openssl ${OPENSSL.replace(/\./g, '\\.')} `));
     const cmake = read(`prebuilds/android/${abi}/share/cmake/Realm/AcquireRealmDependency.cmake`);
     assert.ok(cmake.indexOf('if(EXISTS "${DEP_LOCAL}")') < cmake.indexOf('file(DOWNLOAD'), abi);
+    // the SHA-256 of the shipped archive is recorded in the CMake file and checked before the archive is copied
+    const sha = createHash('sha256').update(readFileSync(join(pkg, 'prebuilds/android', abi, 'deps', deps[0]))).digest('hex');
+    assert.ok(cmake.includes(`set(AFTERDB_BUNDLED_SHA256_${deps[0]} "${sha}")`), abi);
+    assert.ok(cmake.indexOf('file(SHA256 "${DEP_LOCAL}"') < cmake.indexOf('file(COPY_FILE'), abi);
+    assert.match(read('checksums.txt'), new RegExp(`^${sha}  prebuilds/android/${abi}/deps/`, 'm'));
   }
 });
 
-test('Android: the CMake script really extracts the bundled OpenSSL (no NDK needed)', { skip: !cmakeBin() }, () => {
+/** Runs realm_acquire_dependency(openssl) of the AcquireRealmDependency.cmake in `share` with `cmake -P`, in a new folder */
+function acquireOpenSSL(share) {
   const dir = mkdtempSync(join(tmpdir(), 'afterdb-cmake-'));
-  const share = join(pkg, 'prebuilds/android/arm64-v8a/share/cmake/Realm');
   writeFileSync(
     join(dir, 'check.cmake'),
     `set(ANDROID ON)\nset(CMAKE_SYSTEM_NAME Android)\nset(CMAKE_ANDROID_ARCH_ABI arm64-v8a)\ninclude("${share}/AcquireRealmDependency.cmake")\nrealm_acquire_dependency(openssl ${OPENSSL} OUT)\nif(NOT EXISTS "\${OUT}")\n  message(FATAL_ERROR "include.cmake missing: \${OUT}")\nendif()\nmessage(STATUS "OK \${OUT}")\n`,
   );
-  const log = execFileSync(cmakeBin(), ['-P', join(dir, 'check.cmake')], { cwd: dir, encoding: 'utf8', stdio: 'pipe' });
-  assert.ok(existsSync(join(dir, `openssl-${OPENSSL}/include.cmake`)));
-  assert.ok(existsSync(join(dir, `openssl-${OPENSSL}/lib/libcrypto.a`)));
-  assert.match(readFileSync(join(dir, `openssl-${OPENSSL}/include/openssl/opensslv.h`), 'utf8'), new RegExp(`OPENSSL_VERSION_TEXT.*OpenSSL ${OPENSSL.replace(/\./g, '\\.')}`));
-  assert.doesNotMatch(log, /Getting https:\/\/static\.realm\.io/);
+  const r = spawnSync(cmakeBin(), ['-P', join(dir, 'check.cmake')], { cwd: dir, encoding: 'utf8' });
+  return { dir, status: r.status, log: r.stdout + r.stderr };
+}
+
+test('Android: the CMake script checks the SHA-256 of the bundled OpenSSL, then extracts it (no NDK needed)', { skip: !cmakeBin() }, () => {
+  const { dir, status, log } = acquireOpenSSL(join(pkg, 'prebuilds/android/arm64-v8a/share/cmake/Realm'));
+  try {
+    assert.equal(status, 0, log);
+    assert.match(log.replace(/\s+/g, ' '), new RegExp(`Using bundled \\S*/openssl-${OPENSSL.replace(/\./g, '\\.')}-arm64-android\\.tar\\.gz \\(SHA-256 checked\\)`));
+    assert.ok(existsSync(join(dir, `openssl-${OPENSSL}/include.cmake`)));
+    assert.ok(existsSync(join(dir, `openssl-${OPENSSL}/lib/libcrypto.a`)));
+    assert.match(readFileSync(join(dir, `openssl-${OPENSSL}/include/openssl/opensslv.h`), 'utf8'), new RegExp(`OPENSSL_VERSION_TEXT.*OpenSSL ${OPENSSL.replace(/\./g, '\\.')}`));
+    assert.doesNotMatch(log, /Getting https:\/\/static\.realm\.io/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('Android: a damaged bundled OpenSSL archive stops the CMake configure (FATAL_ERROR, nothing extracted or downloaded)', { skip: !cmakeBin() }, () => {
+  // same layout as the package: <abi>/share/cmake/Realm/*.cmake and <abi>/deps/<archive>, with one byte changed
+  const abi = mkdtempSync(join(tmpdir(), 'afterdb-damaged-'));
+  const name = `openssl-${OPENSSL}-arm64-android.tar.gz`;
+  cpSync(join(pkg, 'prebuilds/android/arm64-v8a/share/cmake/Realm'), join(abi, 'share/cmake/Realm'), { recursive: true });
+  const archive = readFileSync(join(pkg, 'prebuilds/android/arm64-v8a/deps', name));
+  const expected = createHash('sha256').update(archive).digest('hex');
+  archive[archive.length >> 1] ^= 0xff;
+  mkdirSync(join(abi, 'deps'));
+  writeFileSync(join(abi, 'deps', name), archive);
+  const { dir, status, log } = acquireOpenSSL(join(abi, 'share/cmake/Realm'));
+  try {
+    assert.notEqual(status, 0, log);
+    // CMake wraps long messages over several lines
+    const message = log.replace(/\s+/g, ' ');
+    assert.match(message, /CMake Error/);
+    assert.match(message, new RegExp(`SHA-256 mismatch for the bundled \\S*/${name.replace(/\./g, '\\.')}: ${createHash('sha256').update(archive).digest('hex')}, expected ${expected}\\.`));
+    assert.ok(!existsSync(join(dir, `openssl-${OPENSSL}/include.cmake`)), 'extracted anyway');
+    assert.ok(!existsSync(join(dir, `openssl-${OPENSSL}/openssl.tar.gz`)), 'copied anyway');
+    assert.doesNotMatch(log, /Getting https:\/\/static\.realm\.io/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(abi, { recursive: true, force: true });
+  }
 });
 
 test('install offline as « realm » through an alias, open, write, query, encrypt (Node)', () => {

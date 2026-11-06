@@ -1,7 +1,9 @@
 # Test results
 
 Machine: MacBook (macOS 14.4, Apple silicon), Node 22.19, Android SDK 36/37, NDK 27–28, Gradle 9.4.1.
-Xcode is not installed on this machine (Xcode 26 needs macOS 15): iOS runs only in the CI job.
+Xcode is not installed on this machine (Xcode 26 needs macOS 15): iOS is only configured in CI.
+The CI jobs (Android build, 16 KB check, iOS build) are configured but have not had a green run yet: every result
+below is local.
 
 ## 2026-11-06
 
@@ -27,7 +29,8 @@ Xcode is not installed on this machine (Xcode 26 needs macOS 15): iOS runs only 
 - `npm install`: `realm` and `@realm/react` resolve to `@pomwik/keelstore` and `@pomwik/keelstore-react`.
 - `./gradlew assembleRelease` for arm64-v8a and x86_64: **BUILD SUCCESSFUL**. `librealm.so` built for both ABIs
   (9.4 MB and 10.3 MB). OpenSSL taken from the bundled archive, nothing downloaded from static.realm.io.
-- 16 KB check (`scripts/check-16kb.mjs`): **all 24 native libraries of the APK are 16 KB aligned**.
+- 16 KB check (`scripts/check-16kb.mjs`, local; configured in CI): **all 24 native libraries of the APK are 16 KB
+  aligned**.
 - Run on the Pixel 8 emulator (Android 16, arm64): the self-check screen shows `KEELSTORE_SELF_CHECK_OK` and
   « 11 tasks done (live query) »: write, read, update and live query through `RealmProvider` / `useQuery`.
 
@@ -51,6 +54,35 @@ and the `cmake -P` test now catches this class of error without an NDK.
 Found on the way: a `package-lock.json` pins the integrity of a local `.tgz`, so npm silently reinstalls the old
 package after a rebuild. The example app no longer commits its lockfile.
 
+### 16 KB checker (`node --test scripts/check-16kb.test.mjs`, 11 tests)
+Pass, with `.so` files built by the NDK 28 clang (`-Wl,-z,max-page-size=4096` and `16384`, aarch64 and armv7a):
+64-bit 4 KB fails, 64-bit 16 KB passes, 32-bit 4 KB is reported only (failed with `--all`), 32/64 bits read from the
+ELF class even in a misplaced folder, non-ELF and truncated files skipped, empty folder and zip without `.so` exit 2,
+`zipalign -c -P 16` run on an APK (fails on a stored, unaligned `.so`, passes after `zipalign -P 16`).
+On the example APK: 24/24 64-bit libraries aligned, `zipalign -c -P 16 -v 4` OK.
+
+## Independent review (2026-11-06)
+
+A separate session tested the packages against upstream, with its own tests (`review/`):
+- Node API behaviour identical to `realm@20.2.0`: BSON types, embedded objects, sets, dictionaries, mixed, counters,
+  backlinks, migrations, listeners, compact, read-only and in-memory realms.
+- Files written by each package are read by the other, both ways, plain and encrypted.
+- The Node binary is byte-identical to the upstream one; only the files listed in `CHANGES-FROM-UPSTREAM.md` differ
+  from the upstream tarball.
+- Offline reinstall with an invalid proxy works. yarn 1 OK; pnpm not tested.
+- Android build with an invalid proxy for CMake OK (nothing downloaded), and the self-check passes on the 16 KB
+  emulator.
+
+Defects found, being fixed:
+- converter: silent loss of data with `--schema`;
+- CI: missing `pipefail`, so a failing step could pass;
+- podspec: `HEADER_SEARCH_PATHS` given as an array, which `install_modules_dependencies` turns into `["..."] …`;
+- upstream downloads not pinned (Node binaries, OpenSSL archives);
+- CI never green yet.
+
+Also found and fixed in `scripts/check-16kb.mjs`: 32/64 bits taken from the folder name, a crash on an APK without
+`.so` and on a non-ELF file, no zip alignment check.
+
 ### Not run yet
-- iOS (Xcode 26.4, frameworks none / static / dynamic): CI job `ios`, started by hand.
+- iOS (Xcode 26.4, frameworks none / static / dynamic): configured in CI (job `ios`, started by hand), never run.
 - React Native 0.86 and 0.87, Expo SDK 56–58.

@@ -7,6 +7,12 @@
 set -euo pipefail
 
 VERSION="${1:-3.5.9}"
+# SHA-256 pinned on 2026-11-06, checked against the value published next to the release AND against this one
+case "$VERSION" in
+  3.5.9) PINNED=603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a ;;
+  *) PINNED="" ;;
+esac
+UPSTREAM_ARM64_SHA=54e4581c4b123d7f04842a6cec3f153838e8a52c9b162b2a2233efd868247610
 HERE="$(cd "$(dirname "$0")" && pwd)"
 CACHE="$HERE/../.cache/openssl"
 WORK="$HERE/../.cache/openssl-build"
@@ -30,10 +36,12 @@ curl -fsSL -o "$WORK/$SRC.sha256" "$BASE/$SRC.sha256"
 EXPECTED="$(awk '{print $1}' "$WORK/$SRC.sha256")"
 ACTUAL="$(shasum -a 256 "$WORK/$SRC" | awk '{print $1}')"
 [ "$EXPECTED" = "$ACTUAL" ] || { echo "SHA-256 mismatch for $SRC"; exit 1; }
+[ -z "$PINNED" ] || [ "$PINNED" = "$ACTUAL" ] || { echo "SHA-256 of $SRC differs from the pinned value"; exit 1; }
 
 # The upstream include.cmake only sets paths relative to the archive root: reused as is
 INCLUDE_CMAKE="$CACHE/openssl-3.3.1-arm64-android.tar.gz"
 [ -f "$INCLUDE_CMAKE" ] || curl -fsSL -o "$INCLUDE_CMAKE" "https://static.realm.io/downloads/dependencies/openssl/3.3.1/openssl-3.3.1-arm64-android.tar.gz"
+[ "$(shasum -a 256 "$INCLUDE_CMAKE" | awk '{print $1}')" = "$UPSTREAM_ARM64_SHA" ] || { echo "SHA-256 mismatch for $INCLUDE_CMAKE"; rm -f "$INCLUDE_CMAKE"; exit 1; }
 
 for pair in arm64-v8a:arm64:android-arm64 armeabi-v7a:arm:android-arm x86:x86:android-x86 x86_64:x64:android-x86_64; do
   IFS=: read -r ABI ARCH TARGET <<<"$pair"
@@ -46,7 +54,7 @@ for pair in arm64-v8a:arm64:android-arm64 armeabi-v7a:arm:android-arm x86:x86:an
   (
     cd "$B/src"
     ./Configure "$TARGET" -D__ANDROID_API__=$API no-shared no-tests no-docs no-apps no-engine no-module \
-      --prefix="$B/prefix" --openssldir="$B/prefix/etc/ssl" >/dev/null
+      --prefix="$B/prefix" --openssldir=/etc/ssl >/dev/null  # neutral path: it is compiled into libcrypto
     make -j"$(sysctl -n hw.ncpu 2>/dev/null || nproc)" build_libs >/dev/null
     make install_dev >/dev/null
   )

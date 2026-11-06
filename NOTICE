@@ -5,5 +5,10 @@ This product includes software developed by MongoDB, Inc. and the Realm JS
 contributors (https://github.com/realm/realm-js), licensed under the Apache
 License, Version 2.0. The upstream copyright notices are kept in the source files.
 
+This product bundles OpenSSL 3.5.9 (https://www.openssl.org), built from the
+official source release for the 4 Android ABIs and licensed under the Apache
+License, Version 2.0. Its LICENSE.txt ships inside each OpenSSL archive
+(prebuilds/android/<abi>/deps/openssl-3.5.9-*.tar.gz).
+
 Realm(R) is a trademark of MongoDB, Inc. keelstore is an independent project.
 It is not affiliated with, sponsored by or endorsed by MongoDB, Inc.

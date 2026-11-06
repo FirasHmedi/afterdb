@@ -22,6 +22,10 @@ Read from the official npm tarball `realm@20.2.0` (published 2025-08-11, integri
 | iOS `pod install` | `RealmJS.podspec` depends on the umbrella `React` pod | — | Undefined JSI/TurboModule symbols on React Native >= 0.86 with frameworks (#7157) |
 | iOS build | `external/s2/base/macros.h` specializes `std::is_pod` | shipped header | Hard error with the libc++ of Xcode 26.4 (#7115) |
 
+Note for this repository: `npm ci` in `converter/` installs the upstream `realm` package, whose install script
+downloads the Node binary from static.realm.io. To avoid it, install with `--ignore-scripts` and our tarball
+(`bridge/out/*.tgz`) in its place.
+
 ## Key files
 - `RealmJS.podspec`: sources of the binding, `vendored_frameworks` = the xcframework, C++20 flags, and the leftover
   `REALM_ENABLE_SYNC=1` define (no shipped header or binding source reads it).

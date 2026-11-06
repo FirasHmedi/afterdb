@@ -9,6 +9,17 @@
 3. iOS: `cd ios && pod install`. Android: `cd android && ./gradlew clean`.
 4. Expo (dev build): `npx expo prebuild --clean`.
 
-Your `.realm` files are not touched: it is the same engine and the same file format as realm 20.2.0.
-Coming from realm 12.x without sync: v20 opens the same files; remove any sync code first.
-To go back: restore the original two lines and reinstall.
+## Your data
+
+- From realm 20.2.0: same engine and same file format, so your `.realm` files open as they are. Files written by
+  each were read by the other, both ways, plain and encrypted, in the independent review (Node, 2026-11-06).
+- From an older realm (for example 12.x): not tested. Remove any sync code first, then try on a copy of the app's
+  data, not on real users. Opening a file with v20 may upgrade its format, and after that an older realm version
+  can no longer open it.
+- Keep a backup of the `.realm` files before the first launch with the new package.
+
+## Going back
+
+To go back to realm 20.2.0, restore the original two lines and reinstall: same engine and file format, verified both
+ways by the independent review on Node. Going back to a realm version older than 20 is not possible for a file that
+v20 has already upgraded: restore the backup instead.

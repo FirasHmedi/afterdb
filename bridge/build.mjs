@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
-export const UPSTREAM = { name: 'realm', version: '20.2.0' };
+export const UPSTREAM = { name: 'realm', version: '20.2.0', integrity: 'sha512-xkfczMrxnZK1KlJ5JBWGMe2Cs48+p1D8T9r8TO6FrZhnm2KUUhBJPOpOIoJ4h1O20fCxlfJ2pIg3mplJTUgF6g==' };
 /** Placeholder name and version until Firas picks the final name (plan, part C §2). */
 export const NAME = '@pomwik/keelstore';
 export const VERSION = '20.3.0';
@@ -21,6 +21,14 @@ const out = process.argv.includes('--out') ? process.argv[process.argv.indexOf('
 
 /** Node N-API binaries published by the upstream project; vendored so that installs never download anything. */
 export const NODE_TARGETS = ['darwin-arm64', 'darwin-x64', 'linux-x64', 'linux-arm64', 'win32-x64'];
+/** SHA-256 of the upstream Node binaries, pinned on 2026-11-06 (verified on download and on every cache reuse) */
+const NODE_SHA256 = {
+  'darwin-arm64': '0da6dc8ee864f4c381ed89068bf51aeb181822f0ab5aa615417c884c7d5ba437',
+  'darwin-x64': '7e141c7722b6b0a3ebff3c5546f7b51fcde6d27d2dd6bd84ec500c184d167422',
+  'linux-x64': 'e80871c908f966c6e763ce57bf4ccb978e4e86073372fcde320e63e83f526938',
+  'linux-arm64': '0c993de91dab7d2f0e350d2c490591dec14c4310c8ce37c0a3a9240239a97a3c',
+  'win32-x64': '95e8666624304adbffe80253197cf8357c5325258307e336658268a6a6319aec',
+};
 const NODE_URL = (t) => `https://static.realm.io/realm-js-prebuilds/${UPSTREAM.version}/realm-v${UPSTREAM.version}-napi-v6-${t}.tar.gz`;
 /**
  * OpenSSL for Android. Upstream downloads 3.3.1 (end of life since 2026-04-09) at compile time; we ship 3.5 LTS,
@@ -29,17 +37,24 @@ const NODE_URL = (t) => `https://static.realm.io/realm-js-prebuilds/${UPSTREAM.v
 export const ANDROID_ABIS = { 'arm64-v8a': 'arm64', 'armeabi-v7a': 'arm', x86: 'x86', x86_64: 'x64' };
 const UPSTREAM_OPENSSL = '3.3.1';
 export const OPENSSL = '3.5.9';
-const UPSTREAM_OPENSSL_URL = (arch) => `https://static.realm.io/downloads/dependencies/openssl/${UPSTREAM_OPENSSL}/openssl-${UPSTREAM_OPENSSL}-${arch}-android.tar.gz`;
 
 const sha256 = (buf) => createHash('sha256').update(buf).digest('hex');
 
-async function download(url, file) {
-  if (existsSync(file)) return readFileSync(file);
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`${url} → HTTP ${res.status}`);
-  const buf = Buffer.from(await res.arrayBuffer());
-  mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, buf);
+/** Downloads once into the cache; the SHA-256 is checked both after download and when the cached copy is reused. */
+async function download(url, file, expected) {
+  let buf;
+  if (existsSync(file)) buf = readFileSync(file);
+  else {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`${url} → HTTP ${res.status}`);
+    buf = Buffer.from(await res.arrayBuffer());
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, buf);
+  }
+  if (expected && sha256(buf) !== expected) {
+    rmSync(file, { force: true });
+    throw new Error(`${url}: SHA-256 ${sha256(buf)} does not match the pinned ${expected}`);
+  }
   return buf;
 }
 
@@ -56,8 +71,9 @@ const MARK = 'Modified by Pomwik, 2026, see CHANGES-FROM-UPSTREAM.md';
 export async function build() {
   // 1. Official tarball, checked against the integrity hash published by the npm registry
   const meta = await (await fetch(`https://registry.npmjs.org/${UPSTREAM.name}/${UPSTREAM.version}`)).json();
+  if (meta.dist.integrity !== UPSTREAM.integrity) throw new Error(`npm registry integrity changed: ${meta.dist.integrity}`);
   const tgz = await download(meta.dist.tarball, join(CACHE, `${UPSTREAM.name}-${UPSTREAM.version}.tgz`));
-  const [algo, b64] = meta.dist.integrity.split('-');
+  const [algo, b64] = UPSTREAM.integrity.split('-');
   if (createHash(algo).update(tgz).digest('base64') !== b64) throw new Error('Upstream tarball does not match its npm integrity hash');
 
   const work = join(out, 'work');
@@ -98,7 +114,7 @@ export async function build() {
 
   // 3. Node binaries for every supported platform, loaded by platform and architecture
   for (const t of NODE_TARGETS) {
-    const buf = await download(NODE_URL(t), join(CACHE, 'node', `${t}.tar.gz`));
+    const buf = await download(NODE_URL(t), join(CACHE, 'node', `${t}.tar.gz`), NODE_SHA256[t]);
     const dir = join(out, 'node-' + t);
     rmSync(dir, { recursive: true, force: true });
     mkdirSync(dir, { recursive: true });
@@ -119,7 +135,7 @@ const nativeModule = (() => {
     }
     catch (err) {
         if (err && err.code !== "MODULE_NOT_FOUND") throw err;
-        return require("#realm.node");
+        throw new Error(\`No prebuilt Node binary for \${process.platform}-\${process.arch} in this package (shipped: ${NODE_TARGETS.join(', ')}). React Native apps do not need it.\`);
     }
 })();`,
   );
@@ -144,6 +160,18 @@ const nativeModule = (() => {
     join(pkg, 'RealmJS.podspec'),
     "'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited) REALM_ENABLE_SYNC=1',",
     "'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited)', # Modified by Pomwik, 2026: REALM_ENABLE_SYNC=1 removed (no sync in v20, read by nothing)",
+  );
+
+  // 4c. install_modules_dependencies interpolates HEADER_SEARCH_PATHS into a string: an array would become
+  //     ["..."] and break <realm_helpers.h> lookups, so the podspec gives a string (found by the independent review)
+  patch(
+    join(pkg, 'RealmJS.podspec'),
+    `                                'HEADER_SEARCH_PATHS' => [
+                                  # Platform independent helpers
+                                  '"\${PODS_TARGET_SRCROOT}/bindgen/vendor/realm-core/bindgen/src/"',
+                                ]`,
+    `                                # ${MARK}: a string, not an array (install_modules_dependencies appends to it as a string)
+                                'HEADER_SEARCH_PATHS' => '"\${PODS_TARGET_SRCROOT}/bindgen/vendor/realm-core/bindgen/src/"',`,
   );
 
   // 5. Xcode 26.4: libc++ forbids specializing std::is_pod, which the shipped s2 headers did (realm/realm-js#7115).
@@ -178,8 +206,6 @@ typedef int Dummy_Type_For_PROPAGATE_POD_FROM_TEMPLATE_ARGUMENT`,
 
   // 6. Android: OpenSSL is shipped in the package instead of being downloaded at compile time
   for (const [abi, arch] of Object.entries(ANDROID_ABIS)) {
-    // The upstream 3.3.1 archive is still fetched: build-openssl.sh reuses its include.cmake
-    await download(UPSTREAM_OPENSSL_URL(arch), join(CACHE, 'openssl', `openssl-${UPSTREAM_OPENSSL}-${arch}-android.tar.gz`));
     const name = `openssl-${OPENSSL}-${arch}-android.tar.gz`;
     const built = join(CACHE, 'openssl', name);
     if (!existsSync(built)) throw new Error(`${built} missing: run bridge/openssl/build-openssl.sh ${OPENSSL}`);
@@ -201,11 +227,13 @@ function(realm_acquire_dependency dep_name dep_version out_dep_cmake)`,
       `realm_acquire_dependency(openssl ${UPSTREAM_OPENSSL} OPENSSL_CMAKE_INCLUDE_FILE)`,
       `realm_acquire_dependency(openssl ${OPENSSL} OPENSSL_CMAKE_INCLUDE_FILE) # ${MARK}: OpenSSL 3.5 LTS instead of 3.3.1`,
     );
+    // One folder per version, so that a build folder left by upstream (OpenSSL 3.3.1) is never reused silently
+    patch(join(pkg, 'prebuilds/android', abi, 'share/cmake/Realm/AcquireRealmDependency.cmake'), '\${CMAKE_CURRENT_BINARY_DIR}/\${dep_name}', '\${CMAKE_CURRENT_BINARY_DIR}/\${dep_name}-\${dep_version}', 4);
     patch(
       join(pkg, 'prebuilds/android', abi, 'share/cmake/Realm/AcquireRealmDependency.cmake'),
       `        set(DEP_URL "https://static.realm.io/downloads/dependencies/\${dep_name}/\${dep_version}/\${dep_name}-\${dep_version}-\${_target_architecture_\${CMAKE_SYSTEM_NAME}_\${_target_architecture}}-\${_target_platform_name_\${CMAKE_SYSTEM_NAME}}.tar.gz")
         message(STATUS "Getting \${DEP_URL}...")
-        file(DOWNLOAD "\${DEP_URL}" "\${CMAKE_CURRENT_BINARY_DIR}/\${dep_name}/\${dep_name}.tar.gz" STATUS download_status)
+        file(DOWNLOAD "\${DEP_URL}" "\${CMAKE_CURRENT_BINARY_DIR}/\${dep_name}-\${dep_version}/\${dep_name}.tar.gz" STATUS download_status)
 
         list(GET download_status 0 status_code)
         if (NOT "\${status_code}" STREQUAL "0")
@@ -217,15 +245,15 @@ function(realm_acquire_dependency dep_name dep_version out_dep_cmake)`,
         set(DEP_LOCAL "\${KEEL_BUNDLED_DEPS_DIR}/\${DEP_FILE_NAME}")
         if(EXISTS "\${DEP_LOCAL}")
             message(STATUS "Using bundled \${DEP_LOCAL}")
-            file(MAKE_DIRECTORY "\${CMAKE_CURRENT_BINARY_DIR}/\${dep_name}")
-            file(COPY_FILE "\${DEP_LOCAL}" "\${CMAKE_CURRENT_BINARY_DIR}/\${dep_name}/\${dep_name}.tar.gz" RESULT copy_result)
+            file(MAKE_DIRECTORY "\${CMAKE_CURRENT_BINARY_DIR}/\${dep_name}-\${dep_version}")
+            file(COPY_FILE "\${DEP_LOCAL}" "\${CMAKE_CURRENT_BINARY_DIR}/\${dep_name}-\${dep_version}/\${dep_name}.tar.gz" RESULT copy_result)
             if(NOT copy_result STREQUAL "0")
                 message(FATAL_ERROR "Copying \${DEP_LOCAL} failed: \${copy_result}")
             endif()
         else()
             set(DEP_URL "https://static.realm.io/downloads/dependencies/\${dep_name}/\${dep_version}/\${DEP_FILE_NAME}")
             message(STATUS "Getting \${DEP_URL}...")
-            file(DOWNLOAD "\${DEP_URL}" "\${CMAKE_CURRENT_BINARY_DIR}/\${dep_name}/\${dep_name}.tar.gz" STATUS download_status)
+            file(DOWNLOAD "\${DEP_URL}" "\${CMAKE_CURRENT_BINARY_DIR}/\${dep_name}-\${dep_version}/\${dep_name}.tar.gz" STATUS download_status)
             list(GET download_status 0 status_code)
             if (NOT "\${status_code}" STREQUAL "0")
                 message(FATAL_ERROR "Downloading \${DEP_URL}... Failed. Status: \${download_status}")

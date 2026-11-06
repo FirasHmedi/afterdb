@@ -63,6 +63,8 @@ test('iOS: podspec uses install_modules_dependencies (realm/realm-js#7157)', () 
   assert.doesNotMatch(podspec, /'\$\(inherited\) REALM_ENABLE_SYNC=1'/, 'v20 has no sync');
   assert.match(podspec, /'GCC_PREPROCESSOR_DEFINITIONS' => '\$\(inherited\)',/);
   assert.match(read('CHANGES-FROM-UPSTREAM.md'), /TPXP/);
+  // install_modules_dependencies appends to HEADER_SEARCH_PATHS as a string: an array would become ["..."]
+  assert.match(podspec, /'HEADER_SEARCH_PATHS' => '"\$\{PODS_TARGET_SRCROOT\}\/bindgen\/vendor\/realm-core\/bindgen\/src\/"',/);
 });
 
 test('Xcode 26.4: no header specializes std::is_pod any more (realm/realm-js#7115)', () => {
@@ -72,7 +74,7 @@ test('Xcode 26.4: no header specializes std::is_pod any more (realm/realm-js#711
   assert.deepEqual(offending, []);
 });
 
-test('Xcode 26.4: the patched s2 headers still compile', { skip: !hasClang() }, () => {
+test('Xcode 26.4: the patched s2 headers still compile (no regression; this clang accepts upstream too)', { skip: !hasClang() }, () => {
   const dir = mkdtempSync(join(tmpdir(), 'keel-s2-'));
   const inc = join(pkg, 'prebuilds/apple/realm-core.xcframework/ios-arm64/Headers');
   writeFileSync(
@@ -101,9 +103,9 @@ test('Android: the CMake script really extracts the bundled OpenSSL (no NDK need
     `set(ANDROID ON)\nset(CMAKE_SYSTEM_NAME Android)\nset(CMAKE_ANDROID_ARCH_ABI arm64-v8a)\ninclude("${share}/AcquireRealmDependency.cmake")\nrealm_acquire_dependency(openssl ${OPENSSL} OUT)\nif(NOT EXISTS "\${OUT}")\n  message(FATAL_ERROR "include.cmake missing: \${OUT}")\nendif()\nmessage(STATUS "OK \${OUT}")\n`,
   );
   const log = execFileSync(cmakeBin(), ['-P', join(dir, 'check.cmake')], { cwd: dir, encoding: 'utf8', stdio: 'pipe' });
-  assert.ok(existsSync(join(dir, 'openssl/include.cmake')));
-  assert.ok(existsSync(join(dir, 'openssl/lib/libcrypto.a')));
-  assert.match(readFileSync(join(dir, 'openssl/include/openssl/opensslv.h'), 'utf8'), new RegExp(`OPENSSL_VERSION_TEXT.*OpenSSL ${OPENSSL.replace(/\./g, '\\.')}`));
+  assert.ok(existsSync(join(dir, `openssl-${OPENSSL}/include.cmake`)));
+  assert.ok(existsSync(join(dir, `openssl-${OPENSSL}/lib/libcrypto.a`)));
+  assert.match(readFileSync(join(dir, `openssl-${OPENSSL}/include/openssl/opensslv.h`), 'utf8'), new RegExp(`OPENSSL_VERSION_TEXT.*OpenSSL ${OPENSSL.replace(/\./g, '\\.')}`));
   assert.doesNotMatch(log, /Getting https:\/\/static\.realm\.io/);
 });
 

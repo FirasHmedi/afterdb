@@ -20,7 +20,7 @@ Xcode upgrade tends to break it. keelstore keeps those apps building while their
 | `react/` | `@pomwik/keelstore-react`: `@realm/react@0.20.0` with `react-native` as an optional peer | Built and tested |
 | `converter/` | `keel-convert`: `.realm` → SQLite with per-object verification, and an RQL ↔ SQL differential test | Tested on desktop (Node) |
 | `example/` | React Native 0.88.1 app that uses both packages through npm aliases and runs a self-check | See the matrix |
-| `scripts/check-16kb.mjs` | Checks that every `.so` of an APK/AAB is 16 KB aligned (Google Play, 1 Feb 2027) | Used in CI |
+| `scripts/check-16kb.mjs` | Checks that every 64-bit `.so` of an APK/AAB is 16 KB aligned (Google Play, 1 Feb 2027), and runs `zipalign -P 16` if found | Tested (`node --test scripts/check-16kb.test.mjs`), configured in CI |
 
 Fixes compared with `realm@20.2.0` (details and credits in `CHANGES-FROM-UPSTREAM.md`):
 - iOS linking on React Native >= 0.86 with frameworks (realm/realm-js#7157, fix by TPXP);
@@ -31,17 +31,17 @@ Fixes compared with `realm@20.2.0` (details and credits in `CHANGES-FROM-UPSTREA
 
 ## Compatibility matrix
 
-Only what has actually been run is marked as passing. See `docs/TEST-RESULTS.md` for the logs.
+Only what has actually been run is marked as passing. See `docs/TEST-RESULTS.md` for the logs. The CI jobs exist
+but have not had a green run yet: "configured in CI" means a job is written, not that it passes.
 
 | Area | Status |
 |---|---|
-| Node 22 (macOS arm64): install offline, open, write, query, encrypted realm | Pass (`npm test`) |
-| Android, React Native 0.88.1, new architecture, Hermes: release build (arm64-v8a, x86_64) | Pass |
-| Android emulator (Pixel 8, Android 16, 4 KB and **16 KB pages**): write, read, update, live `useQuery`, encrypted realm | Pass |
-| Android release build, all 4 ABIs, OpenSSL 3.5.9 LTS linked | Pass |
-| 16 KB alignment of every 64-bit native library of the example APK | Pass (24/24) |
-| No download from static.realm.io during `npm install` or the Android build | Pass |
-| iOS, Xcode 26.4, React Native 0.88.1 (frameworks none / static / dynamic) | Not run yet (CI job, needs macOS runners) |
+| Node 22 (macOS arm64): install offline, open, write, query, encrypted realm | Pass (`npm test`, local, 2026-11-06) |
+| Android, React Native 0.88.1, new architecture, Hermes: release build, all 4 ABIs, OpenSSL 3.5.9 LTS linked | Pass (local, 2026-11-06); configured in CI |
+| Android emulator (Pixel 8, Android 16, 4 KB and **16 KB pages**): write, read, update, live `useQuery`, encrypted realm | Pass (local, 2026-11-06) |
+| 16 KB alignment of every 64-bit native library of the example APK | Pass, 24/24 (local, 2026-11-06); configured in CI |
+| No download from static.realm.io during `npm install` or the Android build | Pass (local, 2026-11-06) |
+| iOS, Xcode 26.4, React Native 0.88.1 (frameworks none / static / dynamic) | Not run yet; configured in CI (needs macOS runners) |
 | React Native 0.86 / 0.87, Expo SDK 56–58 | Not run yet |
 
 ## Install (bare React Native)
@@ -69,13 +69,23 @@ dependencies at `bridge/out/*.tgz` and `react/out/*.tgz`.
 
 ## Development
 
+From scratch, build OpenSSL first (needs the Android NDK 27.*, found through `ANDROID_NDK_ROOT` or
+`$ANDROID_HOME/ndk/27.*`): `npm run build` stops if the OpenSSL archives are missing.
+
 ```bash
-npm run build          # downloads realm@20.2.0 and @realm/react@0.20.0 from npm, checks their integrity, patches, packs
+bridge/openssl/build-openssl.sh   # OpenSSL 3.5.9 for the 4 Android ABIs, into bridge/.cache/openssl/
+npm run build          # downloads realm@20.2.0 and @realm/react@0.20.0 from npm, checks them, patches, packs
 npm test               # tests of the built packages, including an offline install and a Node smoke test
+node --test scripts/check-16kb.test.mjs
 cd converter && npm test
 cd example && npm install && npm run build:android
 node scripts/check-16kb.mjs example/android/app/build/outputs/apk/release/app-release.apk
 ```
+
+Every upstream download is checked against a pinned hash, and the build stops on a mismatch. `npm run build` checks
+the npm integrity of `realm@20.2.0` and `@realm/react@0.20.0` and the SHA-256 of the 5 upstream Node binaries;
+`build-openssl.sh` checks the SHA-256 of the OpenSSL source release and of the upstream OpenSSL 3.3.1 archive whose
+`include.cmake` is reused.
 
 ## Reporting issues
 
@@ -89,4 +99,4 @@ React Native, Expo or Xcode release: [pomwik.com/realm](https://pomwik.com/realm
 
 ## Licence
 
-Apache-2.0. See `LICENSE`, `NOTICE` and `CHANGES-FROM-UPSTREAM.md`. The converter will be published under MIT.
+Apache-2.0, converter included. See `LICENSE`, `NOTICE` and `CHANGES-FROM-UPSTREAM.md`.

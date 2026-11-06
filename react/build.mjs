@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
-export const UPSTREAM = { name: '@realm/react', version: '0.20.0' };
+export const UPSTREAM = { name: '@realm/react', version: '0.20.0', integrity: 'sha512-d72+IQToNlMTS/gylZS3r/QBUHvNy4aG66sXCQb6BxjWqJhJEaRH2ziTcixhHOaXyMD5DLihOg9ev5qhjFj1kQ==' };
 export const NAME = '@pomwik/keelstore-react';
 export const VERSION = '0.20.1';
 const out = process.argv.includes('--out') ? process.argv[process.argv.indexOf('--out') + 1] : join(here, 'out');
@@ -23,7 +23,8 @@ export async function build() {
     mkdirSync(dirname(cache), { recursive: true });
     writeFileSync(cache, Buffer.from(await (await fetch(meta.dist.tarball)).arrayBuffer()));
   }
-  const [algo, b64] = meta.dist.integrity.split('-');
+  if (meta.dist.integrity !== UPSTREAM.integrity) throw new Error(`npm registry integrity changed: ${meta.dist.integrity}`);
+  const [algo, b64] = UPSTREAM.integrity.split('-');
   if (createHash(algo).update(readFileSync(cache)).digest('base64') !== b64) throw new Error('Upstream tarball does not match its npm integrity hash');
 
   const work = join(out, 'work');

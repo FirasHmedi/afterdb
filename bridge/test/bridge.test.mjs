@@ -91,11 +91,13 @@ test('licence files: LICENSE, NOTICE, CHANGES-FROM-UPSTREAM.md, trademark notice
 
 test('README of the package: only what was run is claimed as tested', () => {
   const readme = read('README.md');
-  // React Native 0.86/0.87, Expo and Xcode 26.4 are being tested: named on the « Being tested » line only
-  const lines = readme.split('\n').filter((l) => /Expo|26\.4|0\.8[67]\b/.test(l));
-  assert.deepEqual(lines, ['Being tested, not confirmed yet: React Native 0.86 and 0.87, Expo, Xcode 26.4.']);
-  assert.match(readme, /Android, React Native 0\.88\.1: release builds for the 4 ABIs/);
-  assert.match(readme, /iOS, React Native 0\.88\.1, Xcode 26\.6: on the simulator/);
+  // Each claim matches a run recorded in docs/TEST-RESULTS.md (2026-11-06); iOS beyond RN 0.88.1 is not claimed
+  assert.match(readme, /Android, React Native 0\.88\.1: Debug and release builds for the 4 ABIs/);
+  assert.match(readme, /Android, React Native 0\.86\.3 and 0\.87\.1, and Expo SDK 56, 57 and 58/);
+  assert.match(readme, /iOS, React Native 0\.88\.1, Xcode 26\.4\.1 and 26\.6: on the simulator/);
+  assert.match(readme, /^Not tested yet: real devices, and iOS with React Native 0\.86\/0\.87 or Expo\.$/m);
+  const ios = readme.split('\n').filter((l) => /iOS/.test(l));
+  assert.ok(ios.every((l) => !/0\.8[67]|Expo/.test(l) || l.startsWith('Not tested yet')), 'iOS claimed beyond RN 0.88.1');
 });
 
 test('Node: one binary per platform, loaded by platform', () => {

@@ -19,13 +19,17 @@ unchanged.
 
 ## Tested
 
-- Android, React Native 0.88.1: release builds for the 4 ABIs; the app runs on Android 7, 11 and 16 emulators,
-  including one with 16 KB memory pages.
-- iOS, React Native 0.88.1, Xcode 26.6: on the simulator, with static frameworks, dynamic frameworks and no
-  frameworks, the app runs and keeps its data after a restart. Device builds succeed (without code signing).
-- Node 22 (macOS arm64, Linux x64): offline install, open, write, query, encrypted realm.
+- Android, React Native 0.88.1: Debug and release builds for the 4 ABIs; the app runs on Android 7, 11 and 16
+  emulators, including one with 16 KB memory pages, and keeps its data after a restart.
+- Android, React Native 0.86.3 and 0.87.1, and Expo SDK 56, 57 and 58: release builds run on an Android 16
+  emulator with 16 KB pages. Release builds with R8 (Expo 58's default) work: the package ships its keep rules.
+- iOS, React Native 0.88.1, Xcode 26.4.1 and 26.6: on the simulator, the app runs and keeps its data after a
+  restart (Xcode 26.6: static frameworks, dynamic frameworks and no frameworks; Xcode 26.4.1: no frameworks).
+  Device builds succeed (without code signing).
+- Node 22 (macOS arm64, Linux x64): offline install, open, write, query, encrypted realm; realm-js's own Node
+  integration tests give the same results as with realm@20.2.0.
 
-Being tested, not confirmed yet: React Native 0.86 and 0.87, Expo, Xcode 26.4.
+Not tested yet: real devices, and iOS with React Native 0.86/0.87 or Expo.
 
 Not supported: Device Sync, the old React Native architecture, bugs inside realm-core.
 

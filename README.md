@@ -31,18 +31,24 @@ Fixes compared with `realm@20.2.0` (details and credits in `CHANGES-FROM-UPSTREA
 
 ## Compatibility matrix
 
-Only what has actually been run is marked as passing. See `docs/TEST-RESULTS.md` for the details. "CI" means a
-green run of the GitHub Actions workflow; "configured in CI" means a job is written but has not run yet.
+Only what has actually been run is marked as passing. See `docs/TEST-RESULTS.md` for the details and the logs.
+"CI" means a green run of the GitHub Actions workflow; "local" means run on the maintainer's machine.
 
 | Area | Status |
 |---|---|
-| Node 22: install offline, open, write, query, encrypted realm | Pass (`npm test`: macOS arm64 local, Linux x64 CI, 2026-11-06) |
-| Android, React Native 0.88.1, new architecture, Hermes: release build, all 4 ABIs, OpenSSL 3.5.9 LTS linked | Pass (local and CI, 2026-11-06) |
-| Android emulator (Pixel 8, Android 16, 4 KB and **16 KB pages**): write, read, update, live `useQuery`, encrypted realm, data kept after a restart | Pass (local, 2026-11-06) |
-| 16 KB alignment of every 64-bit native library of the example APK, `zipalign -P 16` | Pass, 24/24 (local and CI, 2026-11-06) |
-| No download from static.realm.io during `npm install` or the Android build | Pass (local, 2026-11-06; OpenSSL origin checked in CI) |
-| iOS, Xcode 26.4, React Native 0.88.1 (frameworks none / static / dynamic) | Not run yet; configured in CI (needs macOS runners) |
-| React Native 0.86 / 0.87, Expo SDK 56–58 | Not run yet |
+| Node 22: install offline, open, write, query, encrypted realm | Pass (`npm test`: macOS arm64 local, Linux x64 CI) |
+| realm-js's own Node integration tests (645) and `@realm/react` tests, compared with upstream 20.2.0 | Same results as upstream (local, macOS arm64) |
+| Android, React Native 0.88.1, new architecture, Hermes: Debug and Release builds, 4 ABIs, OpenSSL 3.5.9 LTS | Pass (local and CI) |
+| Android app run (13-check self-check, data kept after a restart): Android 7 (minimum), 11, 16, and 16 with **16 KB pages** | Pass (emulators, CI; 16 KB pages also local) |
+| React Native 0.86.3 and 0.87.1 (bare), Expo SDK 56 (RN 0.85.3), 57 (RN 0.86.3) and 58 (RN 0.88.1) on Android | Pass (local emulator, 16 KB pages) |
+| Release builds with R8 (Expo 58 default, or `minifyEnabled`) | Pass: the package ships its keep rules (local) |
+| 16 KB alignment of every 64-bit native library, `zipalign -P 16` | Pass (local and CI) |
+| No download from static.realm.io during `npm install` or the Android build | Pass (local; OpenSSL origin checked in CI) |
+| iOS, React Native 0.88.1, **Xcode 26.4.1** (simulator iOS 26.4), no frameworks: Debug and Release builds, app run (13 checks, data kept after a restart), device build | Pass (CI) |
+| iOS, React Native 0.88.1, Xcode 26.6 (simulator iOS 26.5): dynamic frameworks (13 checks), static and no frameworks (first version of the self-check): Release build, app run, device build | Pass (CI) |
+| iOS on a real iPhone; iOS with React Native 0.86/0.87 or Expo | Not run yet |
+
+All dates: 2026-11-06.
 
 ## Install (bare React Native)
 

@@ -101,10 +101,97 @@ Also found and fixed in `scripts/check-16kb.mjs`: 32/64 bits taken from the fold
 - **CI** (push to `main`, commits 33d28c8 and 188ad2c): packages, tests, converter tests on our package, Android
   release build of the 4 ABIs, bundled OpenSSL 3.5.9 checked for each ABI, 16 KB check 24/24 and zipalign OK.
 
-Known and left as is: `librealm.so` contains two source paths of the machine that builds the app (`__FILE__` in
-assertion messages of the binding, compiled from `node_modules` at app build time). Upstream `realm` does the same.
+Known and left as is: `librealm.so` contains source paths of the machine that builds the app (`__FILE__` in
+assertion messages of the binding, compiled from `node_modules` at app build time; 11 in one arm64 build here).
+Upstream `realm` does the same; nothing from our package is involved.
+
+## iOS (GitHub Actions, macOS runners)
+
+The machine used for this work cannot run Xcode 26 (macOS 14.4), so iOS is tested only in CI.
+
+- Run 42211547552 (commit 5e666db): `pod install` installs `RealmJS (20.3.0)`, Debug simulator builds succeed with
+  `USE_FRAMEWORKS=static` and `dynamic` (Xcode 26.6). This is the configuration that breaks upstream
+  (realm/realm-js#7157, #7115).
+- Run 42213034132 (commit 8de7841, first version of the self-check): for frameworks none, static and dynamic,
+  Release build for an iPhone 17 Pro simulator (iOS 26.5, Xcode 26.6), the app launched twice; the result read
+  from the app's own realm file:
+  `launch 1: {"text":"…_SELF_CHECK_OK","launches":"launches: 1"}` and `launch 2: … "launches: 2"`
+  (data kept after a restart). Release build for a generic iOS device without signing: arm64; with dynamic
+  frameworks the app embeds `RealmJS.framework`.
+- Run 42288300426 (commit de9a5ef: final names, app `AfterdbExample`, the 13-check self-check): frameworks none
+  with **Xcode 26.4.1** (iPhone 17 Pro simulator, iOS 26.4) and dynamic frameworks with Xcode 26.6 (iOS 26.5):
+  Debug and Release simulator builds succeed; the app launched twice:
+  `launch 1: {"text":"AFTERDB_SELF_CHECK_OK","launches":"launches: 1"}`, `launch 2: … "launches: 2"`;
+  device build arm64 (with dynamic frameworks the app embeds `RealmJS.framework`).
+
+## Android emulators (GitHub Actions)
+
+Run 42213034132: the release APK of the example launched twice on x86_64 emulators, each time
+`…_SELF_CHECK_OK`, then `launches: 1` and `launches: 2`, no FATAL in logcat:
+Android 7 (API 24, the minimum), Android 11 (API 30), Android 16 (API 36) and Android 16 with 16 KB pages
+(`google_apis_ps16k`).
+Run 42288300426 (final names, 13-check self-check): the same four emulators, same result; the Expo SDK 58 example
+on Android 16 too. In the same run: typecheck of both examples, Debug build of the example (4 ABIs), release
+builds with OpenSSL 3.5.9 checked for each ABI, 16 KB alignment 24/24 (example) and 34/34 (Expo), zipalign OK.
+
+## React Native and Expo versions (local, Android)
+
+Same self-check app (13 checks: create, primitives, link, list, embedded object, backlink, queries, update,
+delete, encrypted realm reopened with its key and refused without it, live `useQuery` and `useObject`), release
+build, run twice on the Pixel 8 emulator with 16 KB pages (`PAGE_SIZE` 16384): every run shows the OK marker,
+`launches: 1` then `launches: 2`, and no FATAL line. Every 64-bit library is 16 KB aligned and the OpenSSL in
+the CMake build folder is byte-identical to the package's (3.5.9).
+
+| App | React Native | React | Install | Notes |
+|---|---|---|---|---|
+| bare example | 0.88.1 | 19.3.0 | `file:` tarballs | Debug and Release builds, 4 ABIs; also with R8 on (`enableProguardInReleaseBuilds`) |
+| bare app (CLI init) | 0.87.1 | 19.2.3 | npm alias from a local registry | AGP 9.2.1, Gradle 9.4.1; `librealm.so` built with NDK 28.2 (AGP default, before the NDK fix) |
+| bare app (CLI init) | 0.86.3 | 19.2.3 | npm alias from a local registry | AGP 8.12.0, Gradle 9.3.1; `librealm.so` built with NDK 27.0 (AGP default, before the NDK fix) |
+| Expo SDK 58 (`examples/expo-58`) | 0.88.1 | 19.3.0 | `file:` tarballs; alias install resolves the same 488 packages | R8 on by default; no ProGuard rule in the app |
+| Expo SDK 57 | 0.86.3 | 19.2.3 | `file:` tarballs | |
+| Expo SDK 56 | 0.85.3 | 19.2.3 | `file:` tarballs | below the 0.86 the brief targets; still works |
+
+**Bug found and fixed with the Expo 58 example.** Expo SDK 58 turns R8 on for release builds. The upstream
+Android library ships no consumer ProGuard rules, so R8 removed `io.realm.react.util.SSLHelper`, which only native
+code looks up (`FindClass` in `JNI_OnLoad`), and the app crashed at start with `ClassNotFoundException`. Any app
+that enables minification in release has the same problem. The package now ships
+`binding/android/consumer-rules.pro` (`-keep class io.realm.react.** { *; }`): checked with the bare example
+with R8 on and with Expo 58 without any rule in the app (R8 `configuration.txt` includes the rule, `mapping.txt`
+keeps `SSLHelper`, the app runs).
+
+## Adoption through the npm alias
+
+The two README lines (`"realm": "npm:@pomwik/afterdb@20.3.0"`, `"@realm/react": "npm:@pomwik/afterdb-react@0.20.1"`)
+were installed from a local registry (verdaccio, the packages were never published) with npm 10.9.3, yarn
+1.22.22 and pnpm 10.34.9: `node_modules/realm` is our package, the Node binary loads, open/write/query and the
+encrypted realm work, nothing is fetched from static.realm.io and no install script runs. React Native 0.86.3 and
+0.87.1 apps above were installed this way. yarn 1 does not install the `react` peer by itself (React Native apps
+always have it).
+
+## realm-js's own test suites
+
+Run against upstream `realm@20.2.0` and against our package, same harness, macOS arm64, Node 22.19 (realm-js
+commit cf86fe01, the npm `gitHead` of 20.2.0; the `v20.2.0` tag points elsewhere):
+- Node integration tests: 645 tests, 612 pass, 0 fail, 33 pending for both, identical test by test in 3 paired
+  runs. The harness entry leaves out the analytics tests (they test the analytics script we removed, and fail
+  upstream too outside the monorepo).
+- `@realm/react` jest tests: 75 pass, 3 skipped (skipped in the source), in 36 of 36 upstream runs and 35 of 36
+  runs with our package; the one failing run had three test files frozen together for 150 s while the machine
+  was under heavy load (disk 97% full) and did not happen again.
+- Not run: realm-js unit tests on the TypeScript source (they need a from-source build), the Electron and React
+  Native test environments.
+
+## Package hygiene audit
+
+An audit of both tarballs against upstream found the packaging clean (every changed file documented, no install
+script, no local path or secret in anything we built, LICENSE and NOTICE present, engine unchanged except the
+documented header fix) and these problems, all fixed: upstream author (MongoDB) and bug URL left in our
+package.json files, a shipped README claiming more than was proven, the local account name in the OpenSSL archives
+(now 0:0), no checksum check of the bundled OpenSSL during the Android build (now SHA-256 checked by CMake, brief
+F5), iOS minimum version 9.0 in the podspec, `librealm.so` built with AGP's NDK instead of the app's.
 
 ### Not run yet
-- iOS (Xcode 26.4, frameworks none / static / dynamic): configured in CI (job `ios`, started by hand on macOS
-  runners), never run.
-- React Native 0.86 and 0.87, Expo SDK 56–58.
+- Real devices (an iPhone, an Android phone): only simulators and emulators.
+- iOS for the Expo example; iOS with React Native 0.86 and 0.87.
+- The Node binaries for Windows, macOS x64 and Linux arm64 are byte-identical to upstream but were not executed
+  (macOS arm64 runs locally, Linux x64 in CI with `npm test`).

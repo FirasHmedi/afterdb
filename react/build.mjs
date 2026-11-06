@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Builds keelstore-react: the official @realm/react@0.20.0 npm tarball (Apache-2.0), verified by its npm
+// Builds afterdb-react: the official @realm/react@0.20.0 npm tarball (Apache-2.0), verified by its npm
 // integrity hash, with react-native as an optional peer dependency (realm/realm-js#7066).
 //
 // Usage: node react/build.mjs [--out react/out]
@@ -8,12 +8,14 @@ import { execFileSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { PROJECT } from '../bridge/build.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
 export const UPSTREAM = { name: '@realm/react', version: '0.20.0', integrity: 'sha512-d72+IQToNlMTS/gylZS3r/QBUHvNy4aG66sXCQb6BxjWqJhJEaRH2ziTcixhHOaXyMD5DLihOg9ev5qhjFj1kQ==' };
-export const NAME = '@pomwik/keelstore-react';
+export const NAME = '@pomwik/afterdb-react';
 export const VERSION = '0.20.1';
+export const DESCRIPTION = 'React hooks for Realm® databases (RealmProvider, useQuery, useObject, useRealm), repackaged from @realm/react 0.20.0 for afterdb. Not affiliated with or endorsed by MongoDB, Inc.';
 const out = process.argv.includes('--out') ? process.argv[process.argv.indexOf('--out') + 1] : join(here, 'out');
 
 export async function build() {
@@ -43,20 +45,18 @@ export async function build() {
   Object.assign(pj, {
     name: NAME,
     version: VERSION,
-    description: 'React hooks for keelstore (repackaged @realm/react 0.20.0). Not affiliated with MongoDB, Inc.',
-    homepage: 'https://github.com/FirasHmedi/keelstore',
-    repository: { type: 'git', url: 'git+https://github.com/FirasHmedi/keelstore.git' },
-    keelstore: { upstream: `${UPSTREAM.name}@${UPSTREAM.version}`, upstreamIntegrity: meta.dist.integrity },
+    description: DESCRIPTION,
+    ...PROJECT,
+    afterdb: { upstream: `${UPSTREAM.name}@${UPSTREAM.version}`, upstreamIntegrity: meta.dist.integrity },
   });
-  pj.files = [...(pj.files ?? []), 'LICENSE', 'NOTICE', 'CHANGES-FROM-UPSTREAM.md'];
+  // upstream already lists LICENSE (without shipping one): add only what is missing, no duplicate
+  pj.files = [...new Set([...(pj.files ?? []), 'LICENSE', 'NOTICE', 'CHANGES-FROM-UPSTREAM.md'])];
   writeFileSync(join(pkg, 'package.json'), JSON.stringify(pj, null, 2) + '\n');
   cpSync(join(root, 'LICENSE'), join(pkg, 'LICENSE'));
-  cpSync(join(root, 'NOTICE'), join(pkg, 'NOTICE'));
+  // this package ships no OpenSSL: its own NOTICE, without the OpenSSL paragraph of the root one
+  cpSync(join(here, 'NOTICE'), join(pkg, 'NOTICE'));
   cpSync(join(root, 'CHANGES-FROM-UPSTREAM.md'), join(pkg, 'CHANGES-FROM-UPSTREAM.md'));
-  writeFileSync(
-    join(pkg, 'README.md'),
-    '# @pomwik/keelstore-react\n\nThe `@realm/react` 0.20.0 hooks (RealmProvider, useQuery, useObject, useRealm), repackaged for @pomwik/keelstore.\nUse it through an npm alias: `"@realm/react": "npm:@pomwik/keelstore-react@0.20.1"`. Changes: see CHANGES-FROM-UPSTREAM.md.\n\nRealm® is a trademark of MongoDB, Inc. This project is independent and not affiliated with or endorsed by MongoDB. Licence: Apache-2.0.\n',
-  );
+  cpSync(join(here, 'PACKAGE_README.md'), join(pkg, 'README.md'));
   const file = execFileSync('npm', ['pack', '--silent', '--pack-destination', out], { cwd: pkg, encoding: 'utf8' }).trim().split('\n').pop();
   return { tarball: join(out, file), pkg };
 }

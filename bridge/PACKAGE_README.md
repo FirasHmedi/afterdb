@@ -1,4 +1,4 @@
-# @pomwik/keelstore
+# @pomwik/afterdb
 
 An independent, maintained fork of the open-source realm-js SDK v20 (Apache-2.0; local database, no sync), for apps
 that use Realm® and need current React Native, Expo and Xcode.
@@ -6,8 +6,8 @@ Drop-in: your code keeps `import Realm from "realm"`.
 
 ```json
 "dependencies": {
-  "realm": "npm:@pomwik/keelstore@20.3.0",
-  "@realm/react": "npm:@pomwik/keelstore-react@0.20.1"
+  "realm": "npm:@pomwik/afterdb@20.3.0",
+  "@realm/react": "npm:@pomwik/afterdb-react@0.20.1"
 }
 ```
 

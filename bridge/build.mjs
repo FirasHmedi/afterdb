@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Builds the keelstore package: the official realm@20.2.0 npm tarball (Apache-2.0), verified by its npm
+// Builds the afterdb package: the official realm@20.2.0 npm tarball (Apache-2.0), verified by its npm
 // integrity hash, with a few patches that keep it building on current React Native, Expo and Xcode.
 // The prebuilt realm-core engine is reused as is: nothing here recompiles C++.
 //
@@ -13,8 +13,7 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
 export const UPSTREAM = { name: 'realm', version: '20.2.0', integrity: 'sha512-xkfczMrxnZK1KlJ5JBWGMe2Cs48+p1D8T9r8TO6FrZhnm2KUUhBJPOpOIoJ4h1O20fCxlfJ2pIg3mplJTUgF6g==' };
-/** Placeholder name and version until Firas picks the final name (plan, part C §2). */
-export const NAME = '@pomwik/keelstore';
+export const NAME = '@pomwik/afterdb';
 export const VERSION = '20.3.0';
 const CACHE = join(here, '.cache');
 const out = process.argv.includes('--out') ? process.argv[process.argv.indexOf('--out') + 1] : join(here, 'out');
@@ -68,6 +67,16 @@ function patch(file, from, to, times = 1) {
 
 const MARK = 'Modified by Pomwik, 2026, see CHANGES-FROM-UPSTREAM.md';
 
+export const DESCRIPTION =
+  'Independent, maintained fork of the open-source Realm® JavaScript SDK v20 (realm-js, Apache-2.0): local database, no sync, with build fixes for current React Native and Xcode. Not affiliated with or endorsed by MongoDB, Inc.';
+/** package.json fields shared by both packages (replace upstream's MongoDB author, homepage, repository and bugs) */
+export const PROJECT = {
+  author: { name: 'Pomwik', email: 'hello@pomwik.com', url: 'https://pomwik.com' },
+  homepage: 'https://github.com/FirasHmedi/afterdb',
+  repository: { type: 'git', url: 'git+https://github.com/FirasHmedi/afterdb.git' },
+  bugs: { url: 'https://github.com/FirasHmedi/afterdb/issues' },
+};
+
 export async function build() {
   // 1. Official tarball, checked against the integrity hash published by the npm registry
   const meta = await (await fetch(`https://registry.npmjs.org/${UPSTREAM.name}/${UPSTREAM.version}`)).json();
@@ -94,15 +103,16 @@ export async function build() {
     delete pj.dependencies[d];
   }
   delete pj.binary;
+  if (!pj.exports['./scripts/submit-analytics']) throw new Error("package.json: exports['./scripts/submit-analytics'] not found upstream");
   delete pj.exports['./scripts/submit-analytics'];
+  if (!pj.keywords?.includes('mongodb')) throw new Error('package.json: keyword mongodb not found upstream');
   Object.assign(pj, {
     name: NAME,
     version: VERSION,
-    description: 'Independent, maintained fork of the open-source realm-js SDK v20 (Apache-2.0, local database) for current React Native, Expo and Xcode. Not affiliated with MongoDB, Inc.',
-    homepage: 'https://github.com/FirasHmedi/keelstore',
-    repository: { type: 'git', url: 'git+https://github.com/FirasHmedi/keelstore.git' },
-    bugs: { url: 'https://github.com/FirasHmedi/keelstore/issues' },
-    keelstore: { upstream: `${UPSTREAM.name}@${UPSTREAM.version}`, upstreamIntegrity: meta.dist.integrity },
+    description: DESCRIPTION,
+    keywords: pj.keywords.filter((k) => k !== 'mongodb'),
+    ...PROJECT,
+    afterdb: { upstream: `${UPSTREAM.name}@${UPSTREAM.version}`, upstreamIntegrity: meta.dist.integrity },
   });
   // binding.gyp only rebuilds the Node binary from source (shipped prebuilt here): without an install script npm
   // would run node-gyp on it automatically, hence gypfile: false and no binding.gyp in the package
@@ -214,7 +224,7 @@ typedef int Dummy_Type_For_PROPAGATE_POD_FROM_TEMPLATE_ARGUMENT`,
       join(pkg, 'prebuilds/android', abi, 'share/cmake/Realm/AcquireRealmDependency.cmake'),
       'function(realm_acquire_dependency dep_name dep_version out_dep_cmake)',
       `# ${MARK}: folder of the OpenSSL archives shipped in the package
-set(KEEL_BUNDLED_DEPS_DIR "\${CMAKE_CURRENT_LIST_DIR}/../../../deps")
+set(AFTERDB_BUNDLED_DEPS_DIR "\${CMAKE_CURRENT_LIST_DIR}/../../../deps")
 
 function(realm_acquire_dependency dep_name dep_version out_dep_cmake)`,
     );
@@ -242,7 +252,7 @@ function(realm_acquire_dependency dep_name dep_version out_dep_cmake)`,
 `,
       `        # ${MARK}: use the copy shipped in the package, download only as a fallback
         set(DEP_FILE_NAME "\${dep_name}-\${dep_version}-\${_target_architecture_\${CMAKE_SYSTEM_NAME}_\${_target_architecture}}-\${_target_platform_name_\${CMAKE_SYSTEM_NAME}}.tar.gz")
-        set(DEP_LOCAL "\${KEEL_BUNDLED_DEPS_DIR}/\${DEP_FILE_NAME}")
+        set(DEP_LOCAL "\${AFTERDB_BUNDLED_DEPS_DIR}/\${DEP_FILE_NAME}")
         if(EXISTS "\${DEP_LOCAL}")
             message(STATUS "Using bundled \${DEP_LOCAL}")
             file(MAKE_DIRECTORY "\${CMAKE_CURRENT_BINARY_DIR}/\${dep_name}-\${dep_version}")

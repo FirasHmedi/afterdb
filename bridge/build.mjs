@@ -36,6 +36,8 @@ const NODE_URL = (t) => `https://static.realm.io/realm-js-prebuilds/${UPSTREAM.v
 export const ANDROID_ABIS = { 'arm64-v8a': 'arm64', 'armeabi-v7a': 'arm', x86: 'x86', x86_64: 'x64' };
 const UPSTREAM_OPENSSL = '3.3.1';
 export const OPENSSL = '3.5.9';
+/** Minimum iOS version of the podspec when React Native does not define min_ios_version_supported */
+export const IOS_FALLBACK_MIN = '15.1';
 
 const sha256 = (buf) => createHash('sha256').update(buf).digest('hex');
 
@@ -165,11 +167,14 @@ const nativeModule = (() => {
 `,
   );
 
-  // 4b. v20 has no Device Sync: REALM_ENABLE_SYNC=1 is a leftover that no shipped header or binding source reads
+  // 4b. v20 has no Device Sync: REALM_ENABLE_SYNC=1 is a leftover that no shipped header or binding source reads.
+  //     The upstream comment above it (« compiled with Sync enabled ») is replaced too.
   patch(
     join(pkg, 'RealmJS.podspec'),
-    "'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited) REALM_ENABLE_SYNC=1',",
-    "'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited)', # Modified by Pomwik, 2026: REALM_ENABLE_SYNC=1 removed (no sync in v20, read by nothing)",
+    `                                # Signaling to headers that Realm was compiled with Sync enabled
+                                'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited) REALM_ENABLE_SYNC=1',`,
+    `                                # ${MARK}: no define of our own; REALM_ENABLE_SYNC=1 removed (v20 has no sync, nothing reads it)
+                                'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited)',`,
   );
 
   // 4c. install_modules_dependencies interpolates HEADER_SEARCH_PATHS into a string: an array would become
@@ -182,6 +187,16 @@ const nativeModule = (() => {
                                 ]`,
     `                                # ${MARK}: a string, not an array (install_modules_dependencies appends to it as a string)
                                 'HEADER_SEARCH_PATHS' => '"\${PODS_TARGET_SRCROOT}/bindgen/vendor/realm-core/bindgen/src/"',`,
+  );
+
+  // 4d. Minimum iOS version: upstream says 9.0, below anything React Native >= 0.71 supports. Use React Native's own
+  //     minimum (min_ios_version_supported, defined by its react_native_pods.rb) and 15.1 when it is not defined.
+  patch(
+    join(pkg, 'RealmJS.podspec'),
+    "  s.platform               = :ios, '9.0'\n",
+    `  # ${MARK}: React Native's minimum iOS version instead of 9.0
+  s.platform               = :ios, (respond_to?(:min_ios_version_supported, true) ? min_ios_version_supported : '${IOS_FALLBACK_MIN}')
+`,
   );
 
   // 5. Xcode 26.4: libc++ forbids specializing std::is_pod, which the shipped s2 headers did (realm/realm-js#7115).

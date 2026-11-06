@@ -1,12 +1,12 @@
 // Tests of the built packages (run `npm run build` first). Usage: node --test bridge/test
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { ANDROID_ABIS, NAME, NODE_TARGETS, OPENSSL, VERSION } from '../build.mjs';
+import { ANDROID_ABIS, DESCRIPTION, IOS_FALLBACK_MIN, NAME, NODE_TARGETS, OPENSSL, VERSION } from '../build.mjs';
 import { NAME as REACT_NAME, VERSION as REACT_VERSION } from '../../react/build.mjs';
 
 /** Package metadata of both packages: final names, Pomwik as author, our repository (never MongoDB's) */
@@ -89,6 +89,67 @@ test('iOS: podspec uses install_modules_dependencies (realm/realm-js#7157)', () 
   assert.match(read('CHANGES-FROM-UPSTREAM.md'), /TPXP/);
   // install_modules_dependencies appends to HEADER_SEARCH_PATHS as a string: an array would become ["..."]
   assert.match(podspec, /'HEADER_SEARCH_PATHS' => '"\$\{PODS_TARGET_SRCROOT\}\/bindgen\/vendor\/realm-core\/bindgen\/src\/"',/);
+  // the stale upstream comment about Sync went with the define, and both changes carry the notice
+  assert.doesNotMatch(podspec, /compiled with Sync enabled/);
+  assert.match(podspec, /# Modified by Pomwik, 2026[^\n]*REALM_ENABLE_SYNC=1 removed[^\n]*\n\s*'GCC_PREPROCESSOR_DEFINITIONS' => '\$\(inherited\)',\n/);
+});
+
+test('iOS: podspec minimum iOS version is React Native\'s, not 9.0', () => {
+  const podspec = read('RealmJS.podspec');
+  assert.doesNotMatch(podspec, /'9\.0'/);
+  assert.match(
+    podspec,
+    new RegExp(`# Modified by Pomwik, 2026[^\\n]*\\n  s\\.platform += :ios, \\(respond_to\\?\\(:min_ios_version_supported, true\\) \\? min_ios_version_supported : '${IOS_FALLBACK_MIN.replace('.', '\\.')}'\\)\\n`),
+  );
+  assert.equal(IOS_FALLBACK_MIN, '15.1');
+});
+
+// Evaluates the shipped podspec the way CocoaPods does (eval inside the Pod module), with a stub Pod::Spec that
+// records the attributes: once without React Native's helpers, once with stubs of min_ios_version_supported and
+// install_modules_dependencies (defined by React Native's react_native_pods.rb when the Podfile requires it).
+test('iOS: the podspec evaluates in Ruby, with and without React Native\'s helpers', { skip: !has('ruby', ['-v']) }, () => {
+  const dir = mkdtempSync(join(tmpdir(), 'afterdb-podspec-'));
+  writeFileSync(
+    join(dir, 'eval.rb'),
+    `require 'json'
+class Object
+  def present?; !(nil? || (respond_to?(:empty?) && empty?)); end
+end
+module Pod
+  class Spec
+    attr_reader :attrs
+    def initialize; @attrs = {}; yield self; $spec = self; end
+    def method_missing(name, *args)
+      key = name.to_s
+      if key.end_with?('=') then @attrs[key.chomp('=')] = args.length == 1 ? args[0] : args
+      else (@attrs[key] ||= []) << args end
+      nil
+    end
+  end
+  def self._eval_podspec(string, path); eval(string, nil, path); end
+end
+podspec, mode = ARGV
+if mode == 'rn'
+  def min_ios_version_supported; '16.4'; end
+  def install_modules_dependencies(spec); spec.dependency('React-Core'); end
+end
+Pod._eval_podspec(File.read(podspec), podspec)
+puts JSON.generate($spec.attrs)
+`,
+  );
+  const evaluate = (mode) => JSON.parse(execFileSync('ruby', [join(dir, 'eval.rb'), join(pkg, 'RealmJS.podspec'), mode], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C', LANG: 'C' } }));
+  const plain = evaluate('plain');
+  assert.deepEqual(plain.platform, ['ios', IOS_FALLBACK_MIN]);
+  assert.deepEqual(plain.dependency, [['React']]);
+  const rn = evaluate('rn');
+  assert.deepEqual(rn.platform, ['ios', '16.4']);
+  assert.deepEqual(rn.dependency, [['React-Core']]);
+  // summary, authors and homepage come from package.json (read even with a non-UTF-8 locale)
+  assert.equal(rn.summary, DESCRIPTION);
+  assert.deepEqual(rn.authors, { name: 'Pomwik', email: 'hello@pomwik.com', url: 'https://pomwik.com' });
+  assert.equal(rn.homepage, 'https://github.com/FirasHmedi/afterdb');
+  assert.equal(rn.pod_target_xcconfig.GCC_PREPROCESSOR_DEFINITIONS, '$(inherited)');
+  rmSync(dir, { recursive: true, force: true });
 });
 
 test('Xcode 26.4: no header specializes std::is_pod any more (realm/realm-js#7115)', () => {
@@ -191,8 +252,12 @@ test('afterdb-react: metadata, and a NOTICE without OpenSSL (the package ships n
 });
 
 function hasClang() {
+  return has('clang++', ['--version']);
+}
+
+function has(bin, args) {
   try {
-    execFileSync('clang++', ['--version'], { stdio: 'pipe' });
+    execFileSync(bin, args, { stdio: 'pipe' });
     return true;
   } catch {
     return false;

@@ -164,10 +164,10 @@ if mode == 'rn'
   def install_modules_dependencies(spec); spec.dependency('React-Core'); end
 end
 Pod._eval_podspec(File.read(podspec), podspec)
-puts JSON.generate($spec.attrs)
+puts JSON.generate($spec.attrs, ascii_only: true)
 `,
   );
-  const evaluate = (mode) => JSON.parse(execFileSync('ruby', [join(dir, 'eval.rb'), join(pkg, 'RealmJS.podspec'), mode], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C', LANG: 'C' } }));
+  const evaluate = (mode) => JSON.parse(execFileSync('ruby', ['-E', 'US-ASCII', join(dir, 'eval.rb'), join(pkg, 'RealmJS.podspec'), mode], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C', LANG: 'C' } }));
   const plain = evaluate('plain');
   assert.deepEqual(plain.platform, ['ios', IOS_FALLBACK_MIN]);
   assert.deepEqual(plain.dependency, [['React']]);

@@ -197,6 +197,16 @@ const nativeModule = (() => {
                                 'HEADER_SEARCH_PATHS' => '"\${PODS_TARGET_SRCROOT}/bindgen/vendor/realm-core/bindgen/src/"',`,
   );
 
+  // 4c2. The package description now holds "Realm®" (non-ASCII). Read package.json as UTF-8 whatever the locale, so
+  //      the podspec also evaluates under LC_ALL=C (Ruby would read it as US-ASCII).
+  patch(
+    join(pkg, 'RealmJS.podspec'),
+    "package = JSON.parse(File.read(File.expand_path('package.json', __dir__)))\n",
+    `# ${MARK}: package.json read as UTF-8 whatever the locale (the description holds a non-ASCII character)
+package = JSON.parse(File.read(File.expand_path('package.json', __dir__), encoding: 'UTF-8'))
+`,
+  );
+
   // 4d. Minimum iOS version: upstream says 9.0, below anything React Native >= 0.71 supports. Use React Native's own
   //     minimum (min_ios_version_supported, defined by its react_native_pods.rb) and 15.1 when it is not defined.
   patch(

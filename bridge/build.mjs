@@ -82,7 +82,7 @@ export async function build() {
   Object.assign(pj, {
     name: NAME,
     version: VERSION,
-    description: 'Maintained build of the Realm JS SDK (v20, local database) for current React Native, Expo and Xcode. Not affiliated with MongoDB, Inc.',
+    description: 'Independent, maintained fork of the open-source realm-js SDK v20 (Apache-2.0, local database) for current React Native, Expo and Xcode. Not affiliated with MongoDB, Inc.',
     homepage: 'https://github.com/FirasHmedi/keelstore',
     repository: { type: 'git', url: 'git+https://github.com/FirasHmedi/keelstore.git' },
     bugs: { url: 'https://github.com/FirasHmedi/keelstore/issues' },

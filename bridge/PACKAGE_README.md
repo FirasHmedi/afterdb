@@ -1,6 +1,7 @@
 # @pomwik/keelstore
 
-Maintained build of the Realm JS SDK v20 (local database, no sync) for current React Native, Expo and Xcode.
+An independent, maintained fork of the open-source realm-js SDK v20 (Apache-2.0; local database, no sync), for apps
+that use Realm® and need current React Native, Expo and Xcode.
 Drop-in: your code keeps `import Realm from "realm"`.
 
 ```json

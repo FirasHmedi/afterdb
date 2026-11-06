@@ -20,7 +20,7 @@ Xcode upgrade tends to break it. keelstore keeps those apps building while their
 | `react/` | `@pomwik/keelstore-react`: `@realm/react@0.20.0` with `react-native` as an optional peer | Built and tested |
 | `converter/` | `keel-convert`: `.realm` → SQLite with per-object verification, and an RQL ↔ SQL differential test | Tested on desktop (Node) |
 | `example/` | React Native 0.88.1 app that uses both packages through npm aliases and runs a self-check | See the matrix |
-| `scripts/check-16kb.mjs` | Checks that every 64-bit `.so` of an APK/AAB is 16 KB aligned (Google Play, 1 Feb 2027), and runs `zipalign -P 16` if found | Tested (`node --test scripts/check-16kb.test.mjs`), configured in CI |
+| `scripts/check-16kb.mjs` | Checks that every 64-bit `.so` of an APK/AAB is 16 KB aligned (Google Play, 1 Feb 2027), and runs `zipalign -P 16` if found | Tested (`node --test scripts/check-16kb.test.mjs`), run in CI |
 
 Fixes compared with `realm@20.2.0` (details and credits in `CHANGES-FROM-UPSTREAM.md`):
 - iOS linking on React Native >= 0.86 with frameworks (realm/realm-js#7157, fix by TPXP);
@@ -31,16 +31,16 @@ Fixes compared with `realm@20.2.0` (details and credits in `CHANGES-FROM-UPSTREA
 
 ## Compatibility matrix
 
-Only what has actually been run is marked as passing. See `docs/TEST-RESULTS.md` for the logs. The CI jobs exist
-but have not had a green run yet: "configured in CI" means a job is written, not that it passes.
+Only what has actually been run is marked as passing. See `docs/TEST-RESULTS.md` for the details. "CI" means a
+green run of the GitHub Actions workflow; "configured in CI" means a job is written but has not run yet.
 
 | Area | Status |
 |---|---|
-| Node 22 (macOS arm64): install offline, open, write, query, encrypted realm | Pass (`npm test`, local, 2026-11-06) |
-| Android, React Native 0.88.1, new architecture, Hermes: release build, all 4 ABIs, OpenSSL 3.5.9 LTS linked | Pass (local, 2026-11-06); configured in CI |
-| Android emulator (Pixel 8, Android 16, 4 KB and **16 KB pages**): write, read, update, live `useQuery`, encrypted realm | Pass (local, 2026-11-06) |
-| 16 KB alignment of every 64-bit native library of the example APK | Pass, 24/24 (local, 2026-11-06); configured in CI |
-| No download from static.realm.io during `npm install` or the Android build | Pass (local, 2026-11-06) |
+| Node 22: install offline, open, write, query, encrypted realm | Pass (`npm test`: macOS arm64 local, Linux x64 CI, 2026-11-06) |
+| Android, React Native 0.88.1, new architecture, Hermes: release build, all 4 ABIs, OpenSSL 3.5.9 LTS linked | Pass (local and CI, 2026-11-06) |
+| Android emulator (Pixel 8, Android 16, 4 KB and **16 KB pages**): write, read, update, live `useQuery`, encrypted realm, data kept after a restart | Pass (local, 2026-11-06) |
+| 16 KB alignment of every 64-bit native library of the example APK, `zipalign -P 16` | Pass, 24/24 (local and CI, 2026-11-06) |
+| No download from static.realm.io during `npm install` or the Android build | Pass (local, 2026-11-06; OpenSSL origin checked in CI) |
 | iOS, Xcode 26.4, React Native 0.88.1 (frameworks none / static / dynamic) | Not run yet; configured in CI (needs macOS runners) |
 | React Native 0.86 / 0.87, Expo SDK 56–58 | Not run yet |
 

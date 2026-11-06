@@ -2,8 +2,8 @@
 
 Machine: MacBook (macOS 14.4, Apple silicon), Node 22.19, Android SDK 36/37, NDK 27–28, Gradle 9.4.1.
 Xcode is not installed on this machine (Xcode 26 needs macOS 15): iOS is only configured in CI.
-The CI jobs (Android build, 16 KB check, iOS build) are configured but have not had a green run yet: every result
-below is local.
+Results are local unless marked CI. The CI (GitHub Actions, ubuntu-24.04) had its first green run on 2026-11-06
+(packages, tests, Android build of the 4 ABIs, 16 KB check). The iOS job is configured but has not run yet.
 
 ## 2026-11-06
 
@@ -73,16 +73,36 @@ A separate session tested the packages against upstream, with its own tests (`re
 - Android build with an invalid proxy for CMake OK (nothing downloaded), and the self-check passes on the 16 KB
   emulator.
 
-Defects found, being fixed:
-- converter: silent loss of data with `--schema`;
+Defects found, all fixed the same day (the review tests that showed them now check the fix, `review/run-all.sh`):
+- converter: silent loss of data with `--schema` (the model now always comes from the file; the app schema only
+  adds backlinks and drift warnings); a failed verification left a file at the final path (now `<out>.failed`);
+  `--force` deleted the old output first; clashing names (`Item`/`item`, `_keel_meta`) stopped the conversion
+  (now renamed with a suffix, recorded in `_keel_meta`);
 - CI: missing `pipefail`, so a failing step could pass;
 - podspec: `HEADER_SEARCH_PATHS` given as an array, which `install_modules_dependencies` turns into `["..."] …`;
-- upstream downloads not pinned (Node binaries, OpenSSL archives);
-- CI never green yet.
+- upstream downloads not pinned (Node binaries, OpenSSL archives): now checked against pinned hashes, also on reuse;
+- local build paths in the OpenSSL libraries (`--prefix`): now neutral, and the build stops if one appears.
 
 Also found and fixed in `scripts/check-16kb.mjs`: 32/64 bits taken from the folder name, a crash on an APK without
 `.so` and on a non-ELF file, no zip alignment check.
 
+## After the fixes (2026-11-06)
+
+- `npm test` 11/11; converter 15 pass, 1 skipped (16 tests); `scripts/check-16kb.test.mjs` 11/11; review tests
+  patches 6/6, install 4/4, node-api 7/7, check16kb 6/6, converter-adversarial 13/13.
+- OpenSSL rebuilt: no `/Users/` string in any of the 4 ABIs; embedded paths are `/etc/ssl` and `/usr/local/...`.
+  ELF class and machine checked per ABI (AArch64, ARM, Intel 80386, X86-64).
+- Android release build, 4 ABIs: OpenSSL in the build folder byte-identical to the package's, version 3.5.9;
+  24/24 64-bit libraries 16 KB aligned, `zipalign -c -P 16 -v 4` OK.
+- **Persistence on the 16 KB emulator** (Pixel 8, `PAGE_SIZE` = 16384): a launch counter in an on-disk realm shows
+  `launches: 1`, then `launches: 2` after a force-stop and cold start; no crash in logcat.
+- **CI** (push to `main`, commits 33d28c8 and 188ad2c): packages, tests, converter tests on our package, Android
+  release build of the 4 ABIs, bundled OpenSSL 3.5.9 checked for each ABI, 16 KB check 24/24 and zipalign OK.
+
+Known and left as is: `librealm.so` contains two source paths of the machine that builds the app (`__FILE__` in
+assertion messages of the binding, compiled from `node_modules` at app build time). Upstream `realm` does the same.
+
 ### Not run yet
-- iOS (Xcode 26.4, frameworks none / static / dynamic): configured in CI (job `ios`, started by hand), never run.
+- iOS (Xcode 26.4, frameworks none / static / dynamic): configured in CI (job `ios`, started by hand on macOS
+  runners), never run.
 - React Native 0.86 and 0.87, Expo SDK 56–58.

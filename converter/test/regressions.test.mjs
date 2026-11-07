@@ -1779,14 +1779,17 @@ test('source changed, truncated or deleted after the copy: exit 0, the CLI and t
   const smallBytes = fs.readFileSync(small);
   fs.rmSync(small);
   assert.ok(smallBytes.length < orig.length);
+  // Cut to half the real size: a fixed 4096 would be a no-op where the file is one 4 KB page (Linux x64).
+  const cut = Math.floor(orig.length / 2);
+  assert.ok(cut > 0 && cut < orig.length);
   const cases = [
     ['changed', async () => { const r = await Realm.open({ path: inp, schema: SCHEMA }); r.write(() => r.create('A', { id: 999, s: 'new', d: 1 })); r.close(); }],
-    ['truncated', () => fs.truncateSync(inp, 4096)],
+    ['truncated', () => fs.truncateSync(inp, cut)],
     ['deleted', () => fs.rmSync(inp)],
     // Smaller but not cut short: replaced by another file, or the same file
     // rewritten with other bytes. Both are "changed", not "truncated".
     ['changed', () => { fs.writeFileSync(small, smallBytes); fs.renameSync(small, inp); }, 'replaced by a smaller file'],
-    ['changed', () => { const fd = fs.openSync(inp, 'r+'); fs.ftruncateSync(fd, 4096); fs.writeSync(fd, Buffer.alloc(16, 0x5a), 0, 16, 100); fs.closeSync(fd); }, 'same file, smaller, other bytes'],
+    ['changed', () => { const fd = fs.openSync(inp, 'r+'); fs.ftruncateSync(fd, cut); fs.writeSync(fd, Buffer.alloc(16, 0x5a), 0, 16, 100); fs.closeSync(fd); }, 'same file, smaller, other bytes'],
     ['unreadable', () => fs.chmodSync(inp, 0)],
   ];
   if (process.getuid?.() === 0) cases.pop(); // root reads a 000 file
@@ -1804,7 +1807,7 @@ test('source changed, truncated or deleted after the copy: exit 0, the CLI and t
     assert.equal(r.input.atEnd, state, label);
     assert.equal(r.input.sha256Before, sha);
     assert.equal(r.input.sha256After === sha, false, label);
-    if (state === 'truncated') assert.equal(r.input.bytesAfter, 4096);
+    if (state === 'truncated') assert.equal(r.input.bytesAfter, cut);
     if (label === 'replaced by a smaller file') assert.equal(r.input.bytesAfter, smallBytes.length);
     if (state === 'deleted' || state === 'unreadable') assert.equal(r.input.sha256After, null);
     assert.match(r.input.copiedAt, /^\d{4}-\d\d-\d\dT/);
@@ -1813,7 +1816,7 @@ test('source changed, truncated or deleted after the copy: exit 0, the CLI and t
     const w = r.warnings.find((x) => x.startsWith('Source unchanged: false'));
     assert.ok(w, `${label}: ${r.warnings.join(' | ')}`);
     assert.ok(w.includes(`verified snapshot of the copy taken at ${r.input.copiedAt}`), w);
-    assert.match(w, { changed: /wrote to it or replaced it/, truncated: /truncated after it was copied \(4096 bytes now, \d+ copied\)/, deleted: /deleted or moved/, unreadable: /could not be read at the end of the run/ }[state]);
+    assert.match(w, { changed: /wrote to it or replaced it/, truncated: new RegExp(`truncated after it was copied \\(${cut} bytes now, \\d+ copied\\)`), deleted: /deleted or moved/, unreadable: /could not be read at the end of the run/ }[state]);
     const md = fs.readFileSync(path.join(rep, 'report.md'), 'utf8');
     assert.ok(md.includes(`**NO** (${state})`) && md.includes(`snapshot of the copy taken at ${r.input.copiedAt}`), md);
     assert.equal(JSON.parse(fs.readFileSync(path.join(rep, 'report.json'), 'utf8')).input.atEnd, state);

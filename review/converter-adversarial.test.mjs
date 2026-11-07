@@ -24,6 +24,10 @@ async function make(file, schema, fill, extra = {}) {
   if (fill) r.write(() => fill(r));
   r.close();
 }
+// Temporary files of a run, in the folder of the output: the private copy of the
+// input (afterdb.<12 hex>.copy/) and the database being written
+// (afterdb.<12 hex>.partial, with its SQLite side files).
+const temps = () => fs.readdirSync(TMP).filter((f) => /^afterdb\.[0-9a-f]{12}\.(copy|partial)/.test(f));
 const cli = (...args) => spawnSync('node', [path.join(conv, 'bin/afterdb-convert.mjs'), ...args], { encoding: 'utf8', timeout: 120_000 });
 
 test('empty realm (one class, 0 objects) and realm with only an embedded class + 0-object class', async () => {
@@ -158,7 +162,7 @@ test('wrong key, no key on an encrypted file, corrupted and truncated files: exi
     const r = cli(p('enc.realm'), p(`enc-${label}.sqlite`), ...args);
     assert.equal(r.status, 1, `${label}: ${r.stdout}${r.stderr}`);
     assert.equal(fs.existsSync(p(`enc-${label}.sqlite`)), false);
-    assert.equal(fs.existsSync(p(`enc-${label}.sqlite.partial`)), false);
+    assert.deepEqual(temps(), [], `${label}: temporary files left`);
   }
   await make(p('ok.realm'), [{ name: 'A', properties: { x: 'int' } }], (r) => { for (let i = 0; i < 1000; i++) r.create('A', { x: i }); });
   const buf = fs.readFileSync(p('ok.realm'));
@@ -188,7 +192,7 @@ test('failed verification: <out> is not written, the file is kept as <out>.faile
   assert.equal(r.ok, false);
   assert.equal(fs.existsSync(p('fail.sqlite')), false, 'failed output at the final path');
   assert.equal(fs.existsSync(p('fail.sqlite.failed')), true);
-  assert.equal(fs.existsSync(p('fail.sqlite.partial')), false);
+  assert.deepEqual(temps(), [], 'temporary files left');
 });
 
 test('realistic: the app removed a class from its schema (Realm keeps the table and its rows); converting with the app schema drops it silently', async () => {

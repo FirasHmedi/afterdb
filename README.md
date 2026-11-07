@@ -18,7 +18,7 @@ Xcode upgrade tends to break it. afterdb keeps those apps building while their t
 |---|---|---|
 | `bridge/` | `@pomwik/afterdb`: the official `realm@20.2.0` package, verified, with build fixes (no engine change) | Built and tested |
 | `react/` | `@pomwik/afterdb-react`: `@realm/react@0.20.0` with `react-native` as an optional peer | Built and tested |
-| `converter/` | `keel-convert`: `.realm` → SQLite with per-object verification, and an RQL ↔ SQL differential test | Tested on desktop (Node) |
+| `converter/` | `afterdb-convert`: `.realm` → SQLite with per-object verification, and an RQL ↔ SQL differential test | Tested on desktop (Node) |
 | `example/` | React Native 0.88.1 app that installs both packages under the names `realm` and `@realm/react` (local `file:` tarballs, as the npm alias would) and runs a self-check | See the matrix |
 | `scripts/check-16kb.mjs` | Checks that every 64-bit `.so` of an APK/AAB is 16 KB aligned (Google Play, 1 Feb 2027), and runs `zipalign -P 16` if found | Tested (`node --test scripts/check-16kb.test.mjs`), run in CI |
 

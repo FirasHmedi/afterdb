@@ -20,7 +20,7 @@ before(async () => {
   const r = await convert(src, out, { schema: rqlSchema });
   assert.equal(r.ok, true);
   db = new Database(out, { readonly: true });
-  model = JSON.parse(db.prepare(`SELECT value FROM _keel_meta WHERE key = 'model'`).pluck().get());
+  model = JSON.parse(db.prepare(`SELECT value FROM _afterdb_meta WHERE key = 'model'`).pluck().get());
   realm = await Realm.open({ path: src, schema: rqlSchema, readOnly: true });
 });
 after(() => { db?.close(); realm?.close(); Realm.shutdown(); });
@@ -71,7 +71,7 @@ function runBoth(query, args = []) {
   } catch (e) {
     sqlIds = { error: e.message, unsupported: e instanceof Unsupported };
   }
-  if (realmIds.error && sqlIds.error) return { status: 'both-rejected' };
+  if (realmIds.error && sqlIds.error) return { status: 'both-rejected', unsupported: sqlIds.unsupported, detail: sqlIds.error };
   if (realmIds.error) return { status: 'realm-rejected', detail: realmIds.error };
   if (sqlIds.error) return { status: sqlIds.unsupported ? 'unsupported' : 'translator-error', detail: sqlIds.error };
 
@@ -151,10 +151,31 @@ const HANDWRITTEN = [
   // IN + LIMIT quirk
   ['age IN {10, 20} LIMIT(3)'], ['_id IN {1, 2, 3, 4, 5} LIMIT(2)'], ['name IN {"alice", "bob"} SORT(_id ASC) LIMIT(2)'], ['age IN {10, 20} AND TRUEPREDICATE SORT(_id ASC) LIMIT(3)'],
   ['_id IN {1, 2, 3, 4, 5} SORT(_id ASC) LIMIT(2)', [], 'SDK quirk: reports 5 objects, only 2 readable'],
+  // [c] with an array argument: ignored by == on a base string (quirk), kept by !=, through a link, with the value on the left
+  ['name ==[c] $0', [['alice']]], ['nick ==[c] $0', [['alice']]], ['name ==[c] $0', [['alice', 'BOB']]], ['NOT name ==[c] $0', [['alice']]], ['name ==[c] $0', [[null, 'émile']]],
+  ['name !=[c] $0', [['alice']]], ['city.name ==[c] $0', [['paris', 'LYON']]], ['$0 ==[c] name', [['alice']]],
+  // [c] on a link with == ANY {...}: ignored on the base object
+  ['boss ==[c] ANY {$0}', ['P:5']], ['friends ==[c] ANY {$0}', ['P:7']],
+  // backlinks compared with an object, where the SDK gives the element test
+  ['ALL fans == $0', ['P:3']], ['NONE fans == $0', ['P:3']], ['ALL fans != $0', ['P:3']], ['NONE reports == $0', ['P:5']], ['ALL fans == ANY {$0}', ['P:3']],
+  ['ANY friends.fans == $0', ['P:3']], ['boss.fans == $0', ['P:3']], ['$0 == fans', ['P:3']], ['$0 != reports', ['P:5']], ['ANY fans IN {$0}', ['P:3']],
+  ['fans == boss'], ['ANY reports == boss'], ['ALL fans == boss'],
+  // a list of objects, then a to-one link at the end, compared with an object or
+  // a link: the SDK drops the elements whose last link is null
+  ['friends.boss != $0', ['P:275']], ['ANY friends.boss != $0', ['P:275']], ['ALL friends.boss == $0', ['P:275']], ['ANY fans.boss != $0', ['P:275']],
+  ['ALL fans.boss == $0', ['P:275']], ['NONE fans.boss != $0', ['P:275']], ['fans.boss != $0', ['P:275']], ['ALL friends.boss == ANY {$0}', ['P:275']],
+  ['friends.city != $0', ['C:Lyon']], ['ALL friends.city == $0', ['C:Lyon']], ['fans.city != $0', ['C:Lyon']], ['ALL fans.city == $0', ['C:Lyon']],
+  ['ANY friends.boss == boss'], ['ANY friends.boss != boss'], ['ALL friends.boss == boss'], ['friends.city != city'], ['NONE friends.boss == boss'], ['NONE friends.city != city'],
+  ['ALL friends.boss.boss == $0', ['P:275']], ['ALL friends.city.mayor == $0', ['P:275']], ['ANY boss.friends.boss != $0', ['P:275']], ['ALL friends.boss == boss.boss'],
+  ['friends.boss == $0', ['P:275']], ['NONE friends.boss == $0', ['P:275']], ['ALL friends.boss != $0', ['P:275']], ['ANY friends.boss IN {$0, $1}', ['P:275', 'P:1']],
+  ['ANY friends.boss IN {null, $0}', ['P:275']], ['ALL friends.boss IN {null, $0}', ['P:275']], ['ANY friends.boss IN {null, null}'], ['ALL friends.boss IN {}'], ['ANY friends IN {null, $0}', ['P:275']],
+  ['friends.age IN {5}'], ['friends IN {$0}', ['P:275']],
 ];
 
+// 'P:<id>' is a Person, 'C:<name>' a City (inside an array argument too).
 function resolveArgs(args = []) {
-  return args.map((a) => (typeof a === 'string' && a.startsWith('P:') ? P(Number(a.slice(2))) : a));
+  return args.map((a) => (Array.isArray(a) ? resolveArgs(a) : typeof a !== 'string' ? a
+    : a.startsWith('P:') ? P(Number(a.slice(2))) : a.startsWith('C:') ? realm.objectForPrimaryKey('City', a.slice(2)) : a));
 }
 
 test('handwritten queries', () => {
@@ -173,6 +194,42 @@ test('handwritten queries', () => {
   }
   const mism = Object.entries(tally).filter(([k]) => k.startsWith('mismatch')).reduce((s, [, v]) => s + v, 0);
   console.log(`handwritten: ${HANDWRITTEN.length} queries, ${mism} mismatches (${known} known and documented), tally ${JSON.stringify(tally)}`);
+  for (const b of bad) console.log('UNEXPECTED', JSON.stringify(b));
+  assert.equal(bad.length, 0);
+});
+
+// Error classes: Unsupported means "run it with the SDK"; another RqlError
+// means the SDK refuses the query too (see README, Query translation).
+const SDK_ANSWERS = [
+  ['born == T0:0'], ['born == 1970-01-01@00:00:00'], ['_id == 1.0f'], ['name == B64"YWxpY2U="'], ['tags[FIRST] == "red"'], ['age == ANY scores'],
+  ['@links.Person.friends.@count > 0'], ['ANY @links.Person.boss._id == 5'],
+  ['ALL friends.@count > 0'], ['ANY tags.@count == 1'], ['NONE tags.@count == 0'], ['boss.@count == 1'], ['address.@count == 1'],
+  ['age IN {$0}', [[1, 2]]], ['tags IN {$0}', [['red']]], ['name ==[c] $0', [['alice', 5]]],
+  // the SDK does not give the element test here (README, Known limits)
+  ['ANY fans == $0', ['P:3']], ['fans == $0', ['P:3']], ['fans != $0', ['P:3']], ['fans == ANY {$0}', ['P:3']], ['ANY reports == $0', ['P:5']],
+  // "list IN {...}" without ANY through a link after the list (README, Known limits)
+  ['friends.boss IN {$0}', ['P:275']], ['friends.city IN {$0}', ['C:Lyon']], ['friends.boss IN {}'], ['friends.city.name IN {"Lyon"}'], ['friends.boss.age IN {5}'],
+];
+const SDK_REFUSES = [
+  ['fans == $0', [null]], ['boss IN[c] {$0}', ['P:5']], ['boss.boss ==[c] ANY {$0}', ['P:5']], ['age.@count == 1'], ['@count == 1'], ['ANY name == "alice"'],
+  ['TRUEPREDICATE SORT(tags.@count ASC)'], ['address == $0', ['P:3']], ['name CONTAINS 5'], ['boss < $0', ['P:1']], ['age == $1', [1]],
+  // [c] on a list of links with ALL or NONE (ANY is answered)
+  ['ALL friends ==[c] $0', ['P:275']], ['NONE friends ==[c] $0', ['P:275']], ['ALL fans ==[c] $0', ['P:275']], ['NONE reports ==[c] $0', ['P:275']],
+  ['ALL friends !=[c] $0', ['P:275']], ['ALL friends ==[c] ANY {$0}', ['P:275']], ['ALL friends ==[c] $0', [['P:275']]],
+  // a list of links compared with a single null in IN or == ANY
+  ['ANY friends.boss IN {null}'], ['ANY friends.boss IN $0', [[null]]], ['ANY friends.boss == ANY {null}'], ['ALL friends.city IN {null}'], ['ANY friends IN {null}'], ['friends.boss IN {null}'],
+];
+
+test('error classes: Unsupported where the SDK answers, RqlError where it refuses', () => {
+  const bad = [];
+  for (const [query, args] of SDK_ANSWERS) {
+    const r = runBoth(query, resolveArgs(args));
+    if (r.status !== 'unsupported') bad.push({ query, expected: 'unsupported', ...r });
+  }
+  for (const [query, args] of SDK_REFUSES) {
+    const r = runBoth(query, resolveArgs(args));
+    if (r.status !== 'both-rejected' || r.unsupported) bad.push({ query, expected: 'both-rejected with RqlError', ...r });
+  }
   for (const b of bad) console.log('UNEXPECTED', JSON.stringify(b));
   assert.equal(bad.length, 0);
 });
@@ -262,8 +319,8 @@ function fuzzQueries(count, seed) {
   return out;
 }
 
-const FUZZ_N = Number(process.env.KEEL_FUZZ_N ?? 200);
-const FUZZ_SEED = Number(process.env.KEEL_FUZZ_SEED ?? 42);
+const FUZZ_N = Number(process.env.AFTERDB_FUZZ_N ?? 200);
+const FUZZ_SEED = Number(process.env.AFTERDB_FUZZ_SEED ?? 42);
 
 test(`fuzz: ${FUZZ_N} random queries (seed ${FUZZ_SEED})`, () => {
   const tally = {};

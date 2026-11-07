@@ -28,6 +28,6 @@ test('scale: 20 000 objects under 60 s', { timeout: 60_000 }, async () => {
   assert.ok(ms < 60_000);
 });
 
-test('scale: 200 000 objects (set KEEL_SCALE_200K=1)', { skip: !process.env.KEEL_SCALE_200K, timeout: 600_000 }, async () => {
+test('scale: 200 000 objects (set AFTERDB_SCALE_200K=1)', { skip: !process.env.AFTERDB_SCALE_200K, timeout: 600_000 }, async () => {
   await run(200_000);
 });

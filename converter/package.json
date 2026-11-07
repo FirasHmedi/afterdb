@@ -1,10 +1,10 @@
 {
-  "name": "@keelstore/converter",
+  "name": "@pomwik/afterdb-convert",
   "version": "0.1.0",
   "private": true,
   "description": "Convert a local object database file to a verified SQLite database.",
   "type": "module",
-  "bin": { "keel-convert": "bin/keel-convert.mjs" },
+  "bin": { "afterdb-convert": "bin/afterdb-convert.mjs" },
   "main": "src/convert.mjs",
   "engines": { "node": ">=22" },
   "scripts": {

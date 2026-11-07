@@ -1,5 +1,5 @@
 // Build the SQL model (tables, columns, views) from a canonical object schema.
-// The model is plain JSON: it is stored in the output file (_keel_meta) and
+// The model is plain JSON: it is stored in the output file (_afterdb_meta) and
 // reused by verify.mjs and rql.mjs.
 
 export const MODEL_VERSION = 1;
@@ -37,7 +37,7 @@ function scalarCols(name, type, optional, x = name + SPECIAL_SUFFIX) {
 
 // SQLite folds ASCII letters only when comparing identifiers.
 const fold = (s) => String(s).replace(/[A-Z]/g, (c) => c.toLowerCase());
-export const META_TABLE = '_keel_meta';
+export const META_TABLE = '_afterdb_meta';
 
 /**
  * Case-insensitive name registry. A taken name gets the first free suffix
@@ -133,25 +133,36 @@ export function buildModel(schema) {
       continue;
     }
     const props = {};
+    // Public names (mapTo) of the app schema -> stored names, for queries (rql.mjs).
+    const aliases = {};
     for (const p of Object.values(cls.properties)) {
       const d = describe(cls.name, p);
       if (p.type === 'int' && p.presentation === 'counter') d.counter = true;
       if (p.indexed && !(cls.primaryKey === p.name)) d.indexed = true;
       props[p.name] = d;
+      if (typeof p.publicName === 'string') aliases[p.publicName] = p.name;
     }
+    // Names of the app schema that the output does not hold (rql.mjs raises Unsupported for them).
+    const skipped = {};
+    const extra = (o) => {
+      if (Object.keys(aliases).length) o.aliases = aliases;
+      if (Object.keys(skipped).length) o.skipped = skipped;
+      return o;
+    };
     if (cls.embedded) {
       for (const [n, d] of Object.entries(props)) {
         if (d.kind === 'backlink') {
           warnings.push(`${cls.name}.${n}: backlink on an embedded class is not converted.`);
           delete props[n];
+          skipped[n] = 'a backlink on an embedded class';
         }
       }
-      model.embedded[cls.name] = { props };
+      model.embedded[cls.name] = extra({ props });
       continue;
     }
     const key = keyOf.get(cls.name);
     const tname = tableOf.get(cls.name);
-    const table = { name: cls.name, table: tname, key, primaryKey: cls.primaryKey ?? null, props, columns: [], lists: [], views: [] };
+    const table = extra({ name: cls.name, table: tname, key, primaryKey: cls.primaryKey ?? null, props, columns: [], lists: [], views: [] });
     if (key.synthetic) {
       if (props._rid) throw new Error(`${cls.name}: a class without primary key cannot have a property named "_rid" (reserved for the row key)`);
       table.columns.push({ name: '_rid', sql: 'INTEGER', pk: true, notNull: true });
@@ -219,6 +230,7 @@ export function buildModel(schema) {
         warnings.push(`${t.name}.${n}: backlink origin ${d.source}.${d.sourceProp} not found; view skipped.`);
         delete t.props[n];
         t.views = t.views.filter((v) => v.prop !== n);
+        t.skipped = { ...t.skipped, [n]: `a backlink whose origin ${d.source}.${d.sourceProp} is not a converted link` };
       } else {
         d.sourceKind = sp.kind === 'json' ? sp.ctype : sp.kind;
       }

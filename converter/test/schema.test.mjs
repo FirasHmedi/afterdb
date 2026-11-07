@@ -89,7 +89,8 @@ test('failed verification: output kept as <out>.failed; --force keeps the old ou
   fs.writeFileSync(tmpPath('garbage.realm'), 'not a realm file '.repeat(500));
   await assert.rejects(convert(path.join(path.dirname(src), 'garbage.realm'), out, { force: true }));
   assert.equal(await fileSha256(out), good, 'old output deleted by a failed --force run');
-  assert.equal(fs.existsSync(out + '.partial'), false);
+  // No temporary file (afterdb.<12 hex>.partial) or SQLite side file of it is left.
+  assert.deepEqual(fs.readdirSync(path.dirname(out)).filter((f) => /^afterdb\.[0-9a-f]{12}\.partial/.test(f)), []);
 
   fs.rmSync(out);
   assert.equal((await convert(src, out, { _beforeVerify: (db) => db.exec(`DELETE FROM "T" WHERE "k" = 1`) })).ok, false);
@@ -97,14 +98,14 @@ test('failed verification: output kept as <out>.failed; --force keeps the old ou
   assert.equal((await convert(src, out, { force: true })).ok, true);
 });
 
-test('names that clash in SQLite get deterministic suffixes, recorded in _keel_meta', async () => {
+test('names that clash in SQLite get deterministic suffixes, recorded in _afterdb_meta', async () => {
   const schema = [
     { name: 'Item', properties: { a: 'int' } },
     { name: 'item', properties: { b: 'int' } },
     { name: 'P', properties: { name: 'string', Name: 'string', d: 'double', d__x: 'string', _RID: 'int' } },
     { name: 'A', properties: { b: 'int[]' } },
     { name: 'A__b', properties: { z: 'int' } },
-    { name: '_keel_meta', properties: { key: 'string', value: 'string' } },
+    { name: '_afterdb_meta', properties: { key: 'string', value: 'string' } },
   ];
   const src = tmpPath('names.realm');
   await make(src, schema, (r) => {
@@ -113,16 +114,16 @@ test('names that clash in SQLite get deterministic suffixes, recorded in _keel_m
     r.create('P', { name: 'a', Name: 'b', d: NaN, d__x: 'text', _RID: 7 });
     r.create('A', { b: [1, 2] });
     r.create('A__b', { z: 3 });
-    r.create('_keel_meta', { key: 'k', value: 'v' });
+    r.create('_afterdb_meta', { key: 'k', value: 'v' });
   });
   const out = tmpPath('names.sqlite');
   const r = await convert(src, out);
   assert.equal(r.ok, true, JSON.stringify(r.verification.mismatches));
   const db = open(out);
-  const renames = JSON.parse(db.prepare(`SELECT "value" FROM "_keel_meta" WHERE "key" = 'renames'`).pluck().get());
+  const renames = JSON.parse(db.prepare(`SELECT "value" FROM "_afterdb_meta" WHERE "key" = 'renames'`).pluck().get());
   const got = Object.fromEntries(renames.map((x) => [`${x.class}${x.prop ? '.' + x.prop : ''}:${x.from}`, x.to]));
   assert.deepEqual(got, {
-    '_keel_meta:_keel_meta': '_keel_meta_2',
+    '_afterdb_meta:_afterdb_meta': '_afterdb_meta_2',
     'item:item': 'item_2',
     'P.Name:Name': 'Name_2',
     'P.d__x:d__x': 'd__x_2',
@@ -133,8 +134,8 @@ test('names that clash in SQLite get deterministic suffixes, recorded in _keel_m
   assert.equal(db.prepare('SELECT "Name_2" FROM "P"').pluck().get(), 'b');
   assert.equal(db.prepare('SELECT "d__x" FROM "P"').pluck().get(), 'NaN');
   assert.equal(db.prepare('SELECT count(*) FROM "A__b_2"').pluck().get(), 2);
-  assert.equal(db.prepare('SELECT "value" FROM "_keel_meta_2"').pluck().get(), 'v');
-  const model = JSON.parse(db.prepare(`SELECT "value" FROM "_keel_meta" WHERE "key" = 'model'`).pluck().get());
+  assert.equal(db.prepare('SELECT "value" FROM "_afterdb_meta_2"').pluck().get(), 'v');
+  const model = JSON.parse(db.prepare(`SELECT "value" FROM "_afterdb_meta" WHERE "key" = 'model'`).pluck().get());
   for (const [cls, query] of [['item', 'b == 2'], ['P', 'Name == "b" AND d__x == "text"'], ['A', 'b.@count == 2']]) {
     const { sql, params } = translate(query, { model, className: cls });
     assert.equal(db.prepare(sql).all(...params).length, 1, `${cls}: ${query}`);
@@ -146,13 +147,13 @@ test('names that clash in SQLite get deterministic suffixes, recorded in _keel_m
   assert.deepEqual(again.verification.digests, r.verification.digests);
 });
 
-test('CLI: --key prints a warning about ps; KEEL_KEY does not', () => {
+test('CLI: --key prints a warning about ps; AFTERDB_KEY does not', () => {
   const src = tmpPath('cli-key.realm');
   fs.writeFileSync(src, 'x');
-  const bin = path.resolve(import.meta.dirname, '../bin/keel-convert.mjs');
+  const bin = path.resolve(import.meta.dirname, '../bin/afterdb-convert.mjs');
   const a = spawnSync(process.execPath, [bin, src, tmpPath('cli-key.sqlite'), '--key', 'ab'.repeat(64)], { encoding: 'utf8' });
-  assert.match(a.stderr, /--key is visible .*prefer KEEL_KEY/);
-  const b = spawnSync(process.execPath, [bin, src, tmpPath('cli-key.sqlite')], { encoding: 'utf8', env: { ...process.env, KEEL_KEY: 'ab'.repeat(64) } });
+  assert.match(a.stderr, /--key is visible .*prefer AFTERDB_KEY/);
+  const b = spawnSync(process.execPath, [bin, src, tmpPath('cli-key.sqlite')], { encoding: 'utf8', env: { ...process.env, AFTERDB_KEY: 'ab'.repeat(64) } });
   assert.doesNotMatch(b.stderr, /visible/);
   assert.equal(b.status, 1);
 });

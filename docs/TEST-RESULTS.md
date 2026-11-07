@@ -4,8 +4,8 @@ Local machine: macOS 14, Apple silicon, Node 22.19, Android SDK 36/37, NDK 27–
 macOS 15, so iOS is tested only in CI (GitHub Actions, macOS runners); the Android builds and emulator runs marked CI
 use ubuntu-24.04 runners. Each section says whether it ran locally or in CI.
 afterdb was formerly keelstore: the first runs used the old package names and self-check marker, given here under
-the new ones (`@pomwik/afterdb`, `@pomwik/afterdb-react`, `AFTERDB_SELF_CHECK_OK`). The converter keeps its current
-names: the `keel-convert` command and the `_keel_meta` table.
+the new ones (`@pomwik/afterdb`, `@pomwik/afterdb-react`, `AFTERDB_SELF_CHECK_OK`). The converter's first runs used
+the `keel-convert` command and the `_keel_meta` table; they are now `afterdb-convert` and `_afterdb_meta`.
 
 ## 2026-11-06
 
@@ -78,8 +78,8 @@ An independent review tested the packages against upstream, with its own tests (
 Defects found, all fixed the same day (the review tests that showed them now check the fix, `review/run-all.sh`):
 - converter: silent loss of data with `--schema` (the model now always comes from the file; the app schema only
   adds backlinks and drift warnings); a failed verification left a file at the final path (now `<out>.failed`);
-  `--force` deleted the old output first; clashing names (`Item`/`item`, `_keel_meta`) stopped the conversion
-  (now renamed with a suffix, recorded in `_keel_meta`);
+  `--force` deleted the old output first; clashing names (`Item`/`item`, the tool's own meta table) stopped the conversion
+  (now renamed with a suffix, recorded in the meta table);
 - CI: missing `pipefail`, so a failing step could pass;
 - podspec: `HEADER_SEARCH_PATHS` given as an array, which `install_modules_dependencies` turns into `["..."] …`;
 - upstream downloads not pinned (Node binaries, OpenSSL archives): now checked against pinned hashes, also on reuse;

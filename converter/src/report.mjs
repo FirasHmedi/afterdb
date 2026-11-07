@@ -5,6 +5,20 @@ import path from 'node:path';
 const mb = (b) => (b / 1048576).toFixed(2) + ' MB';
 const yes = (b) => (b ? 'yes' : '**NO**');
 
+/**
+ * What happened to the source after the copy, in words, from report.input
+ * (atEnd: see sourceAtEnd in convert.mjs). Used by the report, the warning and
+ * the CLI line.
+ */
+export function sourceChange(i, ok) {
+  const what = {
+    changed: 'another program wrote to it or replaced it after it was copied',
+    truncated: `it was truncated after it was copied (${i.bytesAfter} bytes now, ${i.bytes} copied)`,
+    deleted: 'it was deleted or moved after it was copied',
+  }[i.atEnd] ?? 'it could not be read at the end of the run';
+  return `${what}; the output is a ${ok ? 'verified ' : ''}snapshot of the copy taken at ${i.copiedAt}`;
+}
+
 export function toMarkdown(r) {
   const v = r.verification;
   const L = [];
@@ -15,7 +29,8 @@ export function toMarkdown(r) {
   L.push('| | path | size | SHA-256 |', '|---|---|---|---|');
   L.push(`| input${r.input.encrypted ? ' (encrypted)' : ''} | ${path.basename(r.input.path)} | ${mb(r.input.bytes)} | ${r.input.sha256Before} |`);
   L.push(`| output | ${path.basename(r.output.path)} | ${mb(r.output.bytes)} | |`, '');
-  L.push(`Source unchanged after conversion (SHA-256 before = after): ${yes(r.input.unchanged)}  `);
+  L.push(`Source unchanged after conversion (SHA-256 before = after): ${r.input.unchanged ? 'yes'
+    : `**NO** (${r.input.atEnd}): ${sourceChange(r.input, r.ok)}, not of the file as it is now`}  `);
   L.push(`Schema from: ${r.schemaSource}. Classes: ${r.classes}, embedded classes: ${r.embeddedClasses}.`, '');
   L.push('## Counts', '', '| class | objects | rows | ok |', '|---|---:|---:|---|');
   for (const t of v.tables) L.push(`| ${t.class} | ${t.objects} | ${t.rows} | ${yes(t.ok)} |`);

@@ -118,7 +118,7 @@ test('CLI: report files, exit code, refuses to overwrite', () => {
   const out = tmpPath('cli.sqlite');
   const rep = path.join(TMP, 'report-cli');
   fs.rmSync(rep, { recursive: true, force: true });
-  const bin = path.resolve(import.meta.dirname, '../bin/keel-convert.mjs');
+  const bin = path.resolve(import.meta.dirname, '../bin/afterdb-convert.mjs');
   const schemaFile = path.join(TMP, 'schema-cli.mjs');
   fs.writeFileSync(schemaFile, `export { schema } from ${JSON.stringify(path.resolve(import.meta.dirname, 'fixtures.mjs'))};\n`);
   const stdout = execFileSync(process.execPath, [bin, src, out, '--schema', schemaFile, '--report', rep], { encoding: 'utf8' });

@@ -67,6 +67,9 @@ export function mergeAppSchema(fileSchema, appSchema) {
     }
     for (const ap of appProps) {
       if (!has(f.properties, stored(ap))) drift(`property ${a.name}.${stored(ap)} is in the app schema but not in the file; no column.`);
+      // A public name (mapTo): the SDK opened with the app schema accepts it in
+      // queries next to the stored name, so the model records it for rql.mjs.
+      else if (ap.name !== stored(ap) && !has(f.properties, ap.name)) f.properties[stored(ap)].publicName = ap.name;
     }
     for (const bl of Object.values(a.properties).filter((p) => p.type === 'linkingObjects')) {
       if (has(f.properties, bl.name)) {

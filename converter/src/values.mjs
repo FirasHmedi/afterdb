@@ -1,6 +1,6 @@
 // Encoding of SDK values into SQLite values and JSON text (write path).
 import Realm from 'realm';
-import { objectKey, classOf } from './sdk.mjs';
+import { objectKey, classOf, dictEntries, record } from './sdk.mjs';
 
 const { ObjectId, Decimal128, UUID } = Realm.BSON;
 
@@ -85,7 +85,7 @@ export function toJson(model, desc, v) {
 
 export function embeddedToJson(model, name, obj) {
   if (obj === null || obj === undefined) return null;
-  const out = {};
+  const out = record();
   for (const [n, d] of Object.entries(model.embedded[name].props)) {
     out[n] = propToJson(model, d, obj[n]);
   }
@@ -108,8 +108,8 @@ export function propToJson(model, d, v) {
 export function collectionToJson(model, d, v) {
   if (d.ctype === 'mixed') return mixedToJson(model, v);
   if (d.ctype === 'dictionary') {
-    const out = {};
-    for (const k of Object.keys(v)) out[k] = toJson(model, d.elem, v[k]);
+    const out = record();
+    for (const [k, e] of dictEntries(v)) out[k] = toJson(model, d.elem, e);
     return out;
   }
   return Array.from(v, (e) => toJson(model, d.elem, e)); // set or list
@@ -132,8 +132,8 @@ export function mixedToJson(model, v) {
     return { t: 'link', c, v: keyToSql(model, c, v) };
   }
   if (v instanceof Realm.Dictionary) {
-    const out = {};
-    for (const k of Object.keys(v)) out[k] = mixedToJson(model, v[k]);
+    const out = record();
+    for (const [k, e] of dictEntries(v)) out[k] = mixedToJson(model, e);
     return { t: 'dictionary', v: out };
   }
   if (v instanceof Realm.List || Array.isArray(v)) return { t: 'list', v: Array.from(v, (e) => mixedToJson(model, e)) };

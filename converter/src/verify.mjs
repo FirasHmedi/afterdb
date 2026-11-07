@@ -1,8 +1,8 @@
 // Verification of a converted file against the open source database.
 import Realm from 'realm';
-import { canonRealm, canonRealmField, canonSql, sqlReaders, stable, sha256, cmpKey } from './canon.mjs';
+import { canonRealm, canonRealmField, canonSql, sqlReaders, stable, sha256, cmpKey, backlinkIndex } from './canon.mjs';
 import { q, isFloat } from './model.mjs';
-import { relax } from './gc.mjs';
+import { relax, due, pause } from './gc.mjs';
 
 const MAX_LISTED = 100;
 const PAGE = 1000;
@@ -46,7 +46,7 @@ function schemaCheck(fileSchema, model) {
     if (c.asymmetric) continue;
     const props = c.embedded ? model.embedded[c.name]?.props : model.classes[c.name]?.props;
     if (!props) { missing.push(c.name); continue; }
-    for (const p of Object.keys(c.properties)) if (!props[p]) missing.push(`${c.name}.${p}`);
+    for (const p of Object.keys(c.properties)) if (!Object.hasOwn(props, p)) missing.push(`${c.name}.${p}`);
   }
   return { ok: missing.length === 0, missing };
 }
@@ -59,6 +59,7 @@ export async function verify(realm, db, model, { sample = 300, seed = 1 } = {}) 
   const out = { tables: [], lists: [], views: [], digests: [], mismatchCount: 0, mismatches: [], lossy: { realm: 0, sqlite: 0 } };
   const listMismatch = (m) => { out.mismatchCount++; if (out.mismatches.length < MAX_LISTED) out.mismatches.push(m); };
   out.schemaCheck = schemaCheck(realm.schema, model);
+  const backlinks = await backlinkIndex(realm, model);
 
   for (const t of Object.values(model.classes)) {
     const kc = t.key.synthetic ? '_rid' : t.key.column;
@@ -68,7 +69,7 @@ export async function verify(realm, db, model, { sample = 300, seed = 1 } = {}) 
     const viewExpected = Object.fromEntries(t.views.map((v) => [v.prop, 0]));
     const realmEntries = [];
     for (let i = 0; i < results.length; i++) {
-      const c = canonRealm(model, t.name, results[i]);
+      const c = canonRealm(model, t.name, results[i], backlinks);
       const k = stable(c[kc]);
       const h = sha256(stable(c));
       expected.set(k, h);
@@ -77,6 +78,7 @@ export async function verify(realm, db, model, { sample = 300, seed = 1 } = {}) 
       for (const v of t.views) viewExpected[v.prop] += c[v.prop].length;
       out.lossy.realm += countSpecials(model, t, c);
       if (i % 10000 === 9999) await relax();
+      else if (due()) await pause();
     }
 
     // SQLite side, paged by key so other statements can run in between.
@@ -98,10 +100,11 @@ export async function verify(realm, db, model, { sample = 300, seed = 1 } = {}) 
         if (e === undefined) listMismatch({ class: t.name, key: c[kc], reason: 'row not in source' });
         else if (e !== h) {
           const src = lookup(realm, t, c[kc]);
-          const fields = src ? diffFields(canonRealm(model, t.name, src), c) : [];
+          const fields = src ? diffFields(canonRealm(model, t.name, src, backlinks), c) : [];
           listMismatch({ class: t.name, key: c[kc], reason: 'hash differs', fields });
         }
         expected.delete(k);
+        if (due()) await pause();
       }
       page = page.length < PAGE ? [] : next.all(page[page.length - 1][kc]);
       if (rows % 10000 === 0) await relax();
@@ -123,10 +126,12 @@ export async function verify(realm, db, model, { sample = 300, seed = 1 } = {}) 
     }
   }
 
+  await pause();
   const fk = db.prepare('PRAGMA foreign_key_check').all();
   out.foreignKeyCheck = { violations: fk.length, first: fk.slice(0, 10) };
+  await pause();
   out.integrityCheck = db.prepare('PRAGMA integrity_check').pluck().all().join('; ');
-  out.sample = await sampleCheck(realm, db, model, sample, seed);
+  out.sample = await sampleCheck(realm, db, model, sample, seed, backlinks);
 
   out.ok = out.schemaCheck.ok && out.tables.every((x) => x.ok) && out.lists.every((x) => x.ok) && out.views.every((x) => x.ok) &&
     out.digests.every((x) => x.equal) && out.mismatchCount === 0 && fk.length === 0 &&
@@ -140,7 +145,7 @@ function lookup(realm, t, key) {
 }
 
 /** Random rows read from SQLite, looked up by key in the source, compared field by field. */
-async function sampleCheck(realm, db, model, size, seed) {
+async function sampleCheck(realm, db, model, size, seed, backlinks) {
   const rnd = mulberry32(seed);
   const res = { requested: size, objects: 0, fields: 0, mismatchCount: 0, mismatches: [] };
   const tables = Object.values(model.classes);
@@ -170,9 +175,10 @@ async function sampleCheck(realm, db, model, size, seed) {
         continue;
       }
       if (res.objects % 1000 === 0) await relax();
+      else if (due()) await pause();
       for (const p of Object.keys(t.props)) {
         res.fields++;
-        const a = stable(canonRealmField(model, t.name, src, p));
+        const a = stable(canonRealmField(model, t.name, src, p, backlinks));
         const b = stable(c[p]);
         if (a !== b) {
           res.mismatchCount++;

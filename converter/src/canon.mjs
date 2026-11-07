@@ -5,7 +5,8 @@
 import { createHash } from 'node:crypto';
 import Realm from 'realm';
 import { q } from './model.mjs';
-import { objectKey, classOf, linkingObjects } from './sdk.mjs';
+import { objectKey, classOf, dictEntries, record } from './sdk.mjs';
+import { relax, due, pause } from './gc.mjs';
 
 const { ObjectId, Decimal128, UUID } = Realm.BSON;
 
@@ -71,7 +72,7 @@ function elemR(model, elem, v) {
 
 function embeddedR(model, name, obj) {
   if (obj === null || obj === undefined) return null;
-  const out = {};
+  const out = record();
   for (const [n, d] of Object.entries(model.embedded[name].props)) out[n] = propR(model, d, obj[n]);
   return out;
 }
@@ -92,8 +93,8 @@ function mixedR(model, v) {
     return { t: 'link', c, v: keyR(model, c, v) };
   }
   if (v instanceof Realm.Dictionary) {
-    const o = {};
-    for (const k of Object.keys(v)) o[k] = mixedR(model, v[k]);
+    const o = record();
+    for (const [k, e] of dictEntries(v)) o[k] = mixedR(model, e);
     return { t: 'dictionary', v: o };
   }
   if (v instanceof Realm.List) return { t: 'list', v: [...v].map((e) => mixedR(model, e)) };
@@ -110,8 +111,8 @@ function propR(model, d, v) {
     case 'json':
       if (d.ctype === 'mixed') return mixedR(model, v);
       if (d.ctype === 'dictionary') {
-        const o = {};
-        for (const k of Object.keys(v)) o[k] = elemR(model, d.elem, v[k]);
+        const o = record();
+        for (const [k, e] of dictEntries(v)) o[k] = elemR(model, d.elem, e);
         return o;
       }
       if (d.ctype === 'set') return sortCanon([...v].map((e) => elemR(model, d.elem, e)));
@@ -120,27 +121,65 @@ function propR(model, d, v) {
   }
 }
 
-// The file is opened without a schema, so backlinks are asked for by origin.
-const backlinksR = (model, d, obj) => [...linkingObjects(obj, d.source, d.sourceProp)].map((s) => keyR(model, d.source, s)).sort(cmpKey);
-
-/** Canonical object read from the SDK. Backlinks become sorted key arrays. */
-export function canonRealm(model, cls, obj) {
-  const t = model.classes[cls];
-  const out = { [t.key.synthetic ? '_rid' : t.key.column]: keyR(model, cls, obj) };
-  for (const [n, d] of Object.entries(t.props)) {
-    if (d.kind === 'backlink') {
-      out[n] = backlinksR(model, d, obj);
-    } else {
-      out[n] = propR(model, d, obj[n]);
+/**
+ * Backlinks of the source, computed from the forward links: the file stores no
+ * backlink property, and linkingObjects() breaks when a stored property hides
+ * an SDK method (see sdk.mjs). For each origin (class, property) used by the
+ * model, maps the key of each target to the sorted keys of the objects that
+ * link to it, once per link (a list that holds a target twice counts twice,
+ * as in the SDK). Built once per verification, yielding to the GC as it goes.
+ * @returns {(d: object, cls: string, obj: object) => Array} backlink keys of obj
+ */
+export async function backlinkIndex(realm, model) {
+  const index = new Map();
+  for (const t of Object.values(model.classes)) {
+    for (const d of Object.values(t.props)) {
+      if (d.kind !== 'backlink') continue;
+      const id = JSON.stringify([d.source, d.sourceProp]);
+      if (index.has(id)) continue;
+      const sp = model.classes[d.source].props[d.sourceProp];
+      const target = sp.kind === 'link' ? sp.target : sp.elem.target;
+      const by = new Map();
+      const add = (x, s) => {
+        if (x === null || x === undefined) return;
+        const k = stable(keyR(model, target, x));
+        const a = by.get(k);
+        if (a) a.push(s);
+        else by.set(k, [s]);
+      };
+      const objs = realm.objects(d.source);
+      for (let i = 0; i < objs.length; i++) {
+        const o = objs[i];
+        const v = o[d.sourceProp];
+        const s = keyR(model, d.source, o);
+        if (sp.kind === 'link') add(v, s);
+        else if (sp.kind === 'list' || sp.ctype === 'set') for (const x of v) add(x, s);
+        else for (const [, x] of dictEntries(v)) add(x, s);
+        if (i % 10000 === 9999) await relax();
+        else if (due()) await pause();
+      }
+      for (const a of by.values()) a.sort(cmpKey);
+      index.set(id, by);
     }
+  }
+  return (d, cls, obj) => [...(index.get(JSON.stringify([d.source, d.sourceProp])).get(stable(keyR(model, cls, obj))) ?? [])];
+}
+
+/** Canonical object read from the SDK. Backlinks (from backlinkIndex) become sorted key arrays. */
+export function canonRealm(model, cls, obj, backlinks) {
+  const t = model.classes[cls];
+  const out = record();
+  out[t.key.synthetic ? '_rid' : t.key.column] = keyR(model, cls, obj);
+  for (const [n, d] of Object.entries(t.props)) {
+    out[n] = d.kind === 'backlink' ? backlinks(d, cls, obj) : propR(model, d, obj[n]);
   }
   return out;
 }
 
 /** Per-property canonical values (for the field-by-field sample). */
-export function canonRealmField(model, cls, obj, prop) {
+export function canonRealmField(model, cls, obj, prop, backlinks) {
   const d = model.classes[cls].props[prop];
-  if (d.kind === 'backlink') return backlinksR(model, d, obj);
+  if (d.kind === 'backlink') return backlinks(d, cls, obj);
   return propR(model, d, obj[prop]);
 }
 
@@ -206,7 +245,7 @@ function jsonPropS(model, d, j) {
 
 function jsonEmbeddedS(model, name, j) {
   if (j === null || j === undefined) return null;
-  const out = {};
+  const out = record();
   for (const [n, d] of Object.entries(model.embedded[name].props)) out[n] = jsonPropS(model, d, j[n]);
   return out;
 }
@@ -219,7 +258,7 @@ function jsonMixedS(j) {
     case 'int': return { t: 'int', v: String(j.v) };
     case 'list': return { t: 'list', v: j.v.map(jsonMixedS) };
     case 'dictionary': {
-      const o = {};
+      const o = record();
       for (const k of Object.keys(j.v)) o[k] = jsonMixedS(j.v[k]);
       return { t: 'dictionary', v: o };
     }
@@ -231,7 +270,7 @@ function jsonMixedS(j) {
 function jsonCollectionS(model, d, j) {
   if (d.ctype === 'mixed') return jsonMixedS(j);
   if (d.ctype === 'dictionary') {
-    const o = {};
+    const o = record();
     for (const k of Object.keys(j)) o[k] = jsonElemS(model, d.elem, j[k]);
     return o;
   }
@@ -242,7 +281,7 @@ function jsonCollectionS(model, d, j) {
 /** Prepared statements for list tables and backlink views of one class. */
 export function sqlReaders(db, model, cls) {
   const t = model.classes[cls];
-  const r = {};
+  const r = record();
   for (const [n, d] of Object.entries(t.props)) {
     if (d.kind === 'list') {
       const cols = d.elem.type === 'object' ? '"target" AS v, NULL AS x' : `"value" AS v, ${d.elem.special ? q(d.elem.special) : 'NULL'} AS x`;
@@ -279,7 +318,8 @@ export function canonSql(model, cls, row, readers) {
   const t = model.classes[cls];
   const kc = t.key.synthetic ? '_rid' : t.key.column;
   const key = typeof row[kc] === 'bigint' ? Number(row[kc]) : scalarS(t.key.type, row[kc], null);
-  const out = { [kc]: key };
+  const out = record();
+  out[kc] = key;
   for (const [n, d] of Object.entries(t.props)) out[n] = sqlFieldOf(model, d, row, row[kc], readers, n);
   return out;
 }

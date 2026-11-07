@@ -105,6 +105,8 @@ Known and left as is: `librealm.so` contains source paths of the machine that bu
 assertion messages of the binding, compiled from `node_modules` at app build time; 11 in one arm64 build here).
 Upstream `realm` does the same; nothing from our package is involved.
 
+Commit hashes below are those of the history after 2026-11-08, when only the author e-mail of every commit was rewritten (same content); the CI run numbers are unchanged.
+
 ## iOS (GitHub Actions, macOS runners)
 
 The local machine cannot run Xcode 26 (it runs macOS 14), so iOS is tested only in CI.

@@ -98,7 +98,7 @@ Also found and fixed in `scripts/check-16kb.mjs`: 32/64 bits taken from the fold
   24/24 64-bit libraries 16 KB aligned, `zipalign -c -P 16 -v 4` OK.
 - **Persistence on the 16 KB emulator** (Pixel 8, `PAGE_SIZE` = 16384): a launch counter in an on-disk realm shows
   `launches: 1`, then `launches: 2` after a force-stop and cold start; no crash in logcat.
-- **CI** (push to `main`, commits 33d28c8 and 188ad2c): packages, tests, converter tests on our package, Android
+- **CI** (push to `main`, commits bb76d99 and 1e8ea84): packages, tests, converter tests on our package, Android
   release build of the 4 ABIs, bundled OpenSSL 3.5.9 checked for each ABI, 16 KB check 24/24 and zipalign OK.
 
 Known and left as is: `librealm.so` contains source paths of the machine that builds the app (`__FILE__` in
@@ -109,16 +109,16 @@ Upstream `realm` does the same; nothing from our package is involved.
 
 The local machine cannot run Xcode 26 (it runs macOS 14), so iOS is tested only in CI.
 
-- Run 42211547552 (commit 5e666db): `pod install` installs `RealmJS (20.3.0)`, Debug simulator builds succeed with
+- Run 42211547552 (commit 9ac5aac): `pod install` installs `RealmJS (20.3.0)`, Debug simulator builds succeed with
   `USE_FRAMEWORKS=static` and `dynamic` (Xcode 26.6). This is the configuration that breaks upstream
   (realm/realm-js#7157, #7115).
-- Run 42213034132 (commit 8de7841, first version of the self-check): for frameworks none, static and dynamic,
+- Run 42213034132 (commit 0ea05de, first version of the self-check): for frameworks none, static and dynamic,
   Release build for an iPhone 17 Pro simulator (iOS 26.5, Xcode 26.6), the app launched twice; the result read
   from the app's own realm file:
   `launch 1: {"text":"…_SELF_CHECK_OK","launches":"launches: 1"}` and `launch 2: … "launches: 2"`
   (data kept after a restart). Release build for a generic iOS device without signing: arm64; with dynamic
   frameworks the app embeds `RealmJS.framework`.
-- Run 42288300426 (commit de9a5ef: final names, app `AfterdbExample`, the 13-check self-check): frameworks none
+- Run 42288300426 (commit 2a9a476: final names, app `AfterdbExample`, the 13-check self-check): frameworks none
   with **Xcode 26.4.1** (iPhone 17 Pro simulator, iOS 26.4) and dynamic frameworks with Xcode 26.6 (iOS 26.5):
   Debug and Release simulator builds succeed; the app launched twice:
   `launch 1: {"text":"AFTERDB_SELF_CHECK_OK","launches":"launches: 1"}`, `launch 2: … "launches: 2"`;

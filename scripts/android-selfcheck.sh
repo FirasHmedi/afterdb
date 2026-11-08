@@ -24,5 +24,10 @@ for n in 1 2; do
   adb shell am force-stop "$PKG"
   [ -n "$ok" ] || { echo "::error::self-check not OK on launch $n"; adb logcat -d -s ReactNativeJS:V AndroidRuntime:E | tail -50; exit 1; }
 done
-if adb logcat -d | grep -q 'FATAL EXCEPTION'; then echo "::error::FATAL in logcat"; adb logcat -d | grep -A20 'FATAL EXCEPTION' | head -60; exit 1; fi
+# only crashes of this app count (system apps of the emulator image crash now and then)
+if adb logcat -d | grep -A1 'FATAL EXCEPTION' | grep -qF "Process: $PKG,"; then
+  echo "::error::FATAL in logcat for $PKG"; adb logcat -d | grep -A20 'FATAL EXCEPTION' | head -60; exit 1
+fi
+others=$(adb logcat -d | grep -A1 'FATAL EXCEPTION' | grep -o 'Process: [^,]*' | sort -u | tr '\n' ' ')
+[ -z "$others" ] || echo "note: crashes of other processes on the emulator (not counted): $others"
 echo "Android self-check OK on both launches (data kept after a restart)"

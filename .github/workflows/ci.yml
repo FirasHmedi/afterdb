@@ -135,10 +135,13 @@ jobs:
           fail-on-cache-miss: true
       - name: Packages (same SHA-256 as in the packages job)
         run: ls -l bridge/out/*.tgz react/out/*.tgz && sha256sum bridge/out/*.tgz react/out/*.tgz
+      # Gradle caches and the Gradle distribution (a download from services.gradle.org can time out)
       - uses: actions/cache@v6
         with:
-          path: ~/.gradle/caches
-          key: gradle-${{ hashFiles('example/android/**/*.gradle*', 'example/package.json') }}
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('example/android/**/*.gradle*', 'example/android/gradle/wrapper/gradle-wrapper.properties', 'example/package.json') }}
       - name: Install the example app (realm and @realm/react aliased to the afterdb packages)
         working-directory: example
         run: npm install --no-audit --no-fund
@@ -258,7 +261,9 @@ jobs:
         run: ls -l bridge/out/*.tgz react/out/*.tgz && sha256sum bridge/out/*.tgz react/out/*.tgz
       - uses: actions/cache@v6
         with:
-          path: ~/.gradle/caches
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
           key: gradle-expo-${{ hashFiles('examples/expo-58/package.json', 'examples/expo-58/app.json') }}
       - name: Install the Expo app (realm and @realm/react from the afterdb packages)
         working-directory: examples/expo-58
@@ -273,6 +278,8 @@ jobs:
         working-directory: examples/expo-58
         run: |
           npx expo prebuild --platform android --clean
+          # the generated Gradle wrapper waits 10 s for services.gradle.org; give it 60 s
+          sed -i 's/^networkTimeout=10000$/networkTimeout=60000/' android/gradle/wrapper/gradle-wrapper.properties
           # R8 must be on, or the build no longer tests the shipped keep rules
           grep -qx 'android.enableMinifyInReleaseBuilds=true' android/gradle.properties \
             || { echo "::error::android.enableMinifyInReleaseBuilds=true not found in android/gradle.properties"; exit 1; }

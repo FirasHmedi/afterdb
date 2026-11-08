@@ -3,10 +3,14 @@
 ## Since 2026-11-08: publishing from GitHub Actions (recommended)
 
 20.3.0 and 0.20.1 were published from a laptop. Next versions are published by `.github/workflows/publish.yml`
-through npm trusted publishing (OIDC): no npm token in the repository, provenance added automatically.
+through npm trusted publishing (OIDC): no npm token in the repository, provenance added automatically. The workflow
+may only stage a version (`npm stage publish`): you approve it with 2FA on npmjs.com (Staged Packages) or with
+`npm stage list` then `npm stage approve <id>` (npm 11.15 or later).
 
 One-time setup, done on npmjs.com for each package (`@pomwik/afterdb`, `@pomwik/afterdb-react`): Settings, Trusted
-Publisher, GitHub Actions, user `FirasHmedi`, repository `afterdb`, workflow `publish.yml`, no environment.
+Publisher, GitHub Actions, user `FirasHmedi`, repository `afterdb`, workflow `publish.yml`, no environment, allowed
+action `npm stage publish` only (done on 2026-11-08; npm validates the configuration with the first staged publish
+and asks for it before 2026-11-10, otherwise add it again before the next release).
 
 Then, for a release: bump the versions in `bridge/build.mjs` / `react/build.mjs` (and the docs), let CI pass, run the
 Publish workflow by hand with `dry_run` checked, check the output, then publish a GitHub release (or run it again

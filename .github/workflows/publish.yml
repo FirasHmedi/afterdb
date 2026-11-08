@@ -1,8 +1,9 @@
 name: Publish
 
-# Publishes @pomwik/afterdb and @pomwik/afterdb-react to npm with provenance, through npm trusted publishing (OIDC):
-# no npm token is stored in this repository. Each package's npm settings must list this repository and this
-# workflow file (publish.yml) as its trusted publisher.
+# Stages @pomwik/afterdb and @pomwik/afterdb-react on npm with provenance, through npm trusted publishing (OIDC):
+# no npm token is stored in this repository. Each package's npm settings list this repository and this workflow file
+# (publish.yml) as its trusted publisher, allowed to run `npm stage publish` only. A maintainer then approves the
+# staged version with 2FA (npmjs.com, Staged Packages, or `npm stage approve <id>`) before it goes live.
 # Runs when a GitHub release is published, or by hand (Actions tab) with an optional dry run. A package whose
 # version is already on npm is skipped, so re-running is safe.
 on:
@@ -37,8 +38,8 @@ jobs:
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
-      # trusted publishing needs npm 11.5.1 or later
-      - name: npm with trusted publishing
+      # trusted publishing needs npm 11.5.1 or later, staged publishing 11.15.0 or later
+      - name: npm with trusted and staged publishing
         run: npm install -g npm@11 && npm --version
       - name: Android NDK 27
         id: ndk
@@ -67,7 +68,7 @@ jobs:
       - run: npm test
       - name: Packages
         run: ls -l bridge/out/*.tgz react/out/*.tgz && sha256sum bridge/out/*.tgz react/out/*.tgz
-      - name: Publish (skips versions already on npm)
+      - name: Stage for approval (skips versions already on npm)
         env:
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
         run: |
@@ -82,6 +83,7 @@ jobs:
               npm publish "$tgz" --access public --provenance --dry-run
             else
               # large packages: the upload of @pomwik/afterdb is about 245 MB (base64)
-              npm publish "$tgz" --access public --provenance --fetch-timeout=3600000
+              npm stage publish "$tgz" --access public --provenance --fetch-timeout=3600000
+              echo "$name@$version staged: approve it with 2FA on npmjs.com (Staged Packages) or with npm stage approve"
             fi
           done

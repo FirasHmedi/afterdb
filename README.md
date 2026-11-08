@@ -62,8 +62,9 @@ All dates: 2026-11-06.
 Then reinstall, `pod install` on iOS, and rebuild. Your code keeps `import Realm from "realm"`. Expo dev builds:
 the same two lines, then `npx expo prebuild --clean`. Full steps: `MIGRATING-FROM-REALM.md`.
 
-Not published to npm yet: until then, build the packages yourself (`npm run build`, Node 22) and point the two
-dependencies at `bridge/out/*.tgz` and `react/out/*.tgz`.
+Both packages are on npm since 2026-11-08: [`@pomwik/afterdb`](https://www.npmjs.com/package/@pomwik/afterdb) and
+[`@pomwik/afterdb-react`](https://www.npmjs.com/package/@pomwik/afterdb-react). To build them yourself instead:
+`npm run build` (Node 22), then point the two dependencies at `bridge/out/*.tgz` and `react/out/*.tgz`.
 
 ## What is not covered
 

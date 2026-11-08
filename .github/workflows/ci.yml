@@ -1,10 +1,10 @@
 name: CI
 
-# Packages, tests, Android builds of the example app and of the Expo SDK 58 example with the 16 KB check; started
-# by hand: the apps run on Android emulators and the iOS builds and simulator run.
+# Packages, tests, Android builds of the example app and of the Expo SDK 58 example with the 16 KB check; on pushes
+# to main and by hand: the apps run on Android emulators, and the iOS builds and simulator runs.
 # The packages are built once (job packages) and the exact same tarballs are used by the android, expo-android and
 # ios jobs.
-# macOS minutes are limited: iOS runs only when started by hand (Actions tab).
+# The repository is public: iOS (macOS runners) and the emulator runs also run on every push to main.
 on:
   push:
     branches: [main]
@@ -23,7 +23,7 @@ on:
         description: 'iOS jobs: min = none on Xcode 26.4 + dynamic on the newest Xcode (2 macOS jobs); all = 4 jobs'
         type: choice
         options: [min, all]
-        default: min
+        default: all
 
 permissions:
   contents: read
@@ -189,7 +189,7 @@ jobs:
   # Runs the release APK of the android job on emulators and checks the self-check screen twice
   # (AFTERDB_SELF_CHECK_OK, then launches 1 and 2 after a force-stop). Started by hand (Actions tab).
   android-run:
-    if: github.event_name == 'workflow_dispatch' && inputs.emulators
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.emulators)
     needs: android
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -290,7 +290,7 @@ jobs:
   # Runs the release APK of the expo-android job (R8 on) on Android 16 and checks the self-check screen twice, like
   # android-run. Started by hand (Actions tab).
   expo-android-run:
-    if: github.event_name == 'workflow_dispatch' && inputs.emulators
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.emulators)
     needs: expo-android
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -324,17 +324,17 @@ jobs:
   # Xcode: exactly 26.4 (the oldest supported) without frameworks, and the newest released Xcode >= 26.4 with
   # frameworks none, static and dynamic.
   ios:
-    if: github.event_name == 'workflow_dispatch' && inputs.ios
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.ios)
     needs: packages
     runs-on: macos-26
     # Debug and Release simulator builds, then the device build
     timeout-minutes: 90
     strategy:
       fail-fast: false
-      # min (default, macOS minutes are limited): Xcode 26.4, the oldest supported, without frameworks, and dynamic
-      # frameworks (realm/realm-js#7157) on the newest Xcode. all: 4 jobs.
+      # all (default, and on every push to main): 4 jobs. min: Xcode 26.4 without frameworks and dynamic frameworks
+      # on the newest Xcode (2 jobs).
       matrix:
-        include: ${{ fromJSON(inputs.ios_set == 'all' && '[{"frameworks":"none","xcode":"26.4"},{"frameworks":"none","xcode":"newest"},{"frameworks":"static","xcode":"newest"},{"frameworks":"dynamic","xcode":"newest"}]' || '[{"frameworks":"none","xcode":"26.4"},{"frameworks":"dynamic","xcode":"newest"}]') }}
+        include: ${{ fromJSON((github.event_name == 'push' || inputs.ios_set == 'all') && '[{"frameworks":"none","xcode":"26.4"},{"frameworks":"none","xcode":"newest"},{"frameworks":"static","xcode":"newest"},{"frameworks":"dynamic","xcode":"newest"}]' || '[{"frameworks":"none","xcode":"26.4"},{"frameworks":"dynamic","xcode":"newest"}]') }}
     name: ios (frameworks ${{ matrix.frameworks }}, Xcode ${{ matrix.xcode }})
     steps:
       - uses: actions/checkout@v7

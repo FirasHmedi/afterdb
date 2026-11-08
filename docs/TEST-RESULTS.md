@@ -126,6 +126,11 @@ The local machine cannot run Xcode 26 (it runs macOS 14), so iOS is tested only 
   `launch 1: {"text":"AFTERDB_SELF_CHECK_OK","launches":"launches: 1"}`, `launch 2: … "launches: 2"`;
   device build arm64 (with dynamic frameworks the app embeds `RealmJS.framework`).
 
+- Run 42484520688 (2026-11-08, public repository, packages as published on npm): all 13 jobs green on every push to
+  `main`: iOS frameworks none with Xcode 26.4.1, and none, static and dynamic with the newest Xcode (Debug and
+  Release simulator builds, app run twice with the 13-check self-check, device build); Android Debug and Release
+  builds, the example on Android 7, 11, 16 and 16 with 16 KB pages; the Expo SDK 58 example built and run.
+
 ## Android emulators (GitHub Actions)
 
 Run 42213034132: the release APK of the example launched twice on x86_64 emulators, each time

@@ -1,5 +1,18 @@
 # Releasing (maintainers)
 
+## Since 2026-11-08: publishing from GitHub Actions (recommended)
+
+20.3.0 and 0.20.1 were published from a laptop. Next versions are published by `.github/workflows/publish.yml`
+through npm trusted publishing (OIDC): no npm token in the repository, provenance added automatically.
+
+One-time setup, done on npmjs.com for each package (`@pomwik/afterdb`, `@pomwik/afterdb-react`): Settings, Trusted
+Publisher, GitHub Actions, user `FirasHmedi`, repository `afterdb`, workflow `publish.yml`, no environment.
+
+Then, for a release: bump the versions in `bridge/build.mjs` / `react/build.mjs` (and the docs), let CI pass, run the
+Publish workflow by hand with `dry_run` checked, check the output, then publish a GitHub release (or run it again
+without `dry_run`). Versions already on npm are skipped. npm may hold a new large version for review for some
+minutes (a `0.0.0-stage` placeholder shows meanwhile).
+
 Packages: `@pomwik/afterdb` 20.3.0 (from `realm@20.2.0`) and `@pomwik/afterdb-react` 0.20.1 (from
 `@realm/react@0.20.0`). `npm run build` writes `bridge/out/pomwik-afterdb-20.3.0.tgz` and
 `react/out/pomwik-afterdb-react-0.20.1.tgz`; the names and versions are `NAME` and `VERSION` in `bridge/build.mjs`

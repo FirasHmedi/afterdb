@@ -1,0 +1,87 @@
+name: Publish
+
+# Publishes @pomwik/afterdb and @pomwik/afterdb-react to npm with provenance, through npm trusted publishing (OIDC):
+# no npm token is stored in this repository. Each package's npm settings must list this repository and this
+# workflow file (publish.yml) as its trusted publisher.
+# Runs when a GitHub release is published, or by hand (Actions tab) with an optional dry run. A package whose
+# version is already on npm is skipped, so re-running is safe.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Build, test and pack, but do not publish'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  id-token: write # OIDC token for npm trusted publishing and provenance
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      # trusted publishing needs npm 11.5.1 or later
+      - name: npm with trusted publishing
+        run: npm install -g npm@11 && npm --version
+      - name: Android NDK 27
+        id: ndk
+        run: |
+          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          best=""; bestkey=0; bestrev=""
+          for d in "$sdk"/ndk/27.*; do
+            [ -f "$d/source.properties" ] || continue
+            rev=$(sed -n 's/^Pkg\.Revision *= *//p' "$d/source.properties" | tr -d '\r')
+            IFS=. read -r a b c <<<"$rev"
+            key=$(( ${a:-0} * 10000000000 + ${b:-0} * 100000000 + ${c:-0} ))
+            if [ "$key" -gt "$bestkey" ]; then bestkey=$key; best=$d; bestrev=$rev; fi
+          done
+          [ -n "$best" ] || { echo "::error::No Android NDK 27.* in $sdk/ndk"; exit 1; }
+          echo "Using NDK $bestrev ($best)"
+          echo "ANDROID_NDK_ROOT=$best" >> "$GITHUB_ENV"
+          echo "version=$bestrev" >> "$GITHUB_OUTPUT"
+      - name: OpenSSL cache
+        uses: actions/cache@v6
+        with:
+          path: bridge/.cache/openssl
+          key: openssl-${{ hashFiles('bridge/openssl/build-openssl.sh') }}-ndk-${{ steps.ndk.outputs.version }}
+      - name: OpenSSL 3.5 LTS for Android (skipped per ABI when cached)
+        run: bridge/openssl/build-openssl.sh
+      - run: npm run build
+      - run: npm test
+      - name: Packages
+        run: ls -l bridge/out/*.tgz react/out/*.tgz && sha256sum bridge/out/*.tgz react/out/*.tgz
+      - name: Publish (skips versions already on npm)
+        env:
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        run: |
+          for tgz in react/out/*.tgz bridge/out/*.tgz; do
+            name=$(tar -xzOf "$tgz" package/package.json | node -p 'JSON.parse(require("fs").readFileSync(0)).name')
+            version=$(tar -xzOf "$tgz" package/package.json | node -p 'JSON.parse(require("fs").readFileSync(0)).version')
+            if npm view "$name@$version" version >/dev/null 2>&1; then
+              echo "$name@$version is already on npm: skipped"
+              continue
+            fi
+            if [ "$DRY_RUN" = "true" ]; then
+              npm publish "$tgz" --access public --provenance --dry-run
+            else
+              # large packages: the upload of @pomwik/afterdb is about 245 MB (base64)
+              npm publish "$tgz" --access public --provenance --fetch-timeout=3600000
+            fi
+          done

@@ -1,5 +1,10 @@
 # afterdb
 
+[![CI](https://github.com/FirasHmedi/afterdb/actions/workflows/ci.yml/badge.svg)](https://github.com/FirasHmedi/afterdb/actions/workflows/ci.yml)
+[![npm @pomwik/afterdb](https://img.shields.io/npm/v/@pomwik/afterdb?label=%40pomwik%2Fafterdb)](https://www.npmjs.com/package/@pomwik/afterdb)
+[![npm @pomwik/afterdb-react](https://img.shields.io/npm/v/@pomwik/afterdb-react?label=%40pomwik%2Fafterdb-react)](https://www.npmjs.com/package/@pomwik/afterdb-react)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+
 An independent, maintained fork of the open-source realm-js SDK v20 (local database, no sync) for apps that use
 Realm® and need current React Native, Expo and Xcode, plus tools to migrate their data to SQLite. Free and open source
 (Apache-2.0).
@@ -28,6 +33,20 @@ Fixes compared with `realm@20.2.0` (details and credits in `CHANGES-FROM-UPSTREA
 - no install-time download and no analytics: Node binaries for 5 platforms are in the package (#7119, #7068, #7126);
 - Android builds no longer download OpenSSL at compile time, and ship OpenSSL 3.5.9 LTS instead of the end-of-life 3.3.1 (#7044);
 - `@realm/react` no longer pulls a nested copy of react-native (#7066).
+
+## Errors this fixes
+
+If you landed here from one of these errors with `realm` 20.x, switching the two dependencies (see Install) is the fix:
+
+| Error | Where | Upstream issue |
+|---|---|---|
+| `'is_pod' cannot be specialized: Users are not allowed to specialize this standard library entity` | iOS build, Xcode 26.4 | realm/realm-js#7115 |
+| `Undefined symbols for architecture …` (`jsi::Value::as…`) | iOS link, React Native 0.86+ | realm/realm-js#7157 |
+| `npm ci` hangs on `prebuild-install --runtime napi`, or `Failed to download prebuild for Realm` | install, CI (Node 22) | realm/realm-js#7119, #7068 |
+| `CMake Error: Downloading ... Failed. Status: 28;"Timeout was reached"` (static.realm.io) | Android build | realm/realm-js#7044 |
+| `postinstall: Error: ENOENT … submit-analytics` | install (pnpm, monorepos) | realm/realm-js#7126 |
+| `Failed to apply plugin 'com.facebook.react.rootproject'` with `@realm/react` | Android build (nested react-native) | realm/realm-js#7066 |
+| App crashes at start in release builds with R8 (`ClassNotFoundException: io.realm.react.util.SSLHelper`) | Android release, Expo SDK 58 | found while testing afterdb |
 
 ## Compatibility matrix
 

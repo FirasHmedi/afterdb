@@ -1,9 +1,10 @@
 name: CI
 
 # Packages, tests, Android builds of the example app and of the Expo SDK 58 example with the 16 KB check; on pushes
-# to main and by hand: the apps run on Android emulators, and the iOS builds and simulator runs.
-# The packages are built once (job packages) and the exact same tarballs are used by the android, expo-android and
-# ios jobs.
+# to main and by hand: the apps run on Android emulators, and the iOS builds and simulator runs (the example app on
+# React Native 0.88.1, and new apps from the React Native 0.86.3 and 0.87.1 templates).
+# The packages are built once (job packages) and the exact same tarballs are used by the android, expo-android, ios
+# and ios-rn jobs.
 # The repository is public: iOS (macOS runners) and the emulator runs also run on every push to main.
 on:
   push:
@@ -20,7 +21,7 @@ on:
         type: boolean
         default: true
       ios_set:
-        description: 'iOS jobs: min = none on Xcode 26.4 + dynamic on the newest Xcode (2 macOS jobs); all = 4 jobs'
+        description: 'iOS jobs: min = example none on Xcode 26.4 + dynamic on the newest Xcode, React Native 0.86.3 and 0.87.1 dynamic (4 macOS jobs); all = 8 jobs'
         type: choice
         options: [min, all]
         default: all
@@ -358,36 +359,7 @@ jobs:
       - name: Xcode ${{ matrix.xcode }} (released, not beta)
         env:
           XCODE: ${{ matrix.xcode }}
-        run: |
-          echo "Installed:"; ls -d /Applications/Xcode*.app || true
-          case "$XCODE" in
-            26.4) pattern='/Applications/Xcode_26.4*.app' ;;
-            newest) pattern='/Applications/Xcode_26.*.app' ;;
-            *) echo "::error::unknown matrix value xcode=$XCODE"; exit 1 ;;
-          esac
-          best=""; bestkey=0; bestv=""
-          for app in $pattern; do
-            [ -d "$app" ] || continue
-            case "$app" in *[Bb]eta*|*Release_Candidate*|*_RC*) continue ;; esac
-            v=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist" 2>/dev/null) || continue
-            IFS=. read -r a b c <<<"$v"
-            key=$(( ${a:-0} * 10000 + ${b:-0} * 100 + ${c:-0} ))
-            # 26.4: the version must be 26.4 or 26.4.x (the folder name alone could be misleading)
-            if [ "$XCODE" = 26.4 ] && { [ "${a:-}" != 26 ] || [ "${b:-}" != 4 ]; }; then continue; fi
-            if [ "$key" -ge 260400 ] && [ "$key" -gt "$bestkey" ]; then bestkey=$key; best=$app; bestv=$v; fi
-          done
-          if [ -z "$best" ]; then
-            if [ "$XCODE" = 26.4 ]; then
-              echo "::error::No released Xcode 26.4 on this runner (looked for $pattern, betas and RCs excluded): the 26.4 entry of the matrix cannot run"
-            else
-              echo "::error::No released Xcode 26.x >= 26.4 in /Applications (React Native 0.88 and the afterdb patches need it)"
-            fi
-            exit 1
-          fi
-          echo "Using Xcode $bestv ($best)"
-          sudo xcode-select -s "$best"
-          echo "DEVELOPER_DIR=$best/Contents/Developer" >> "$GITHUB_ENV"
-          xcodebuild -version
+        run: bash scripts/ci-xcode.sh "$XCODE"
       # React Native treats USE_FRAMEWORKS as set even when empty: only export it for static or dynamic
       - name: USE_FRAMEWORKS=${{ matrix.frameworks }}
         env:
@@ -415,26 +387,7 @@ jobs:
         run: bundle install && bundle exec pod install
       # newest iOS runtime not newer than the selected Xcode's simulator SDK (an older Xcode may not run a later runtime)
       - name: Boot an iPhone simulator (newest iOS runtime of the selected Xcode)
-        run: |
-          SDK=$(xcrun --sdk iphonesimulator --show-sdk-version)
-          export SDK
-          echo "iphonesimulator SDK $SDK"
-          udid=$(xcrun simctl list devices available -j | python3 -c '
-          import json, os, re, sys
-          d = json.load(sys.stdin)["devices"]
-          sdk = [int(x) for x in os.environ["SDK"].split(".")][:2]
-          ver = lambda k: [int(x) for x in re.findall(r"\d+", k)]
-          ios = sorted((k for k in d if "iOS" in k and ver(k)[:2] <= sdk), key=ver)
-          for rt in reversed(ios):
-              phones = [x for x in d[rt] if x["name"].startswith("iPhone")]
-              if phones:
-                  print(phones[0]["udid"], rt, phones[0]["name"], file=sys.stderr)
-                  print(phones[0]["udid"])
-                  break
-          ')
-          [ -n "$udid" ] || { echo "::error::no iPhone simulator available"; exit 1; }
-          xcrun simctl bootstatus "$udid" -b
-          echo "SIM_UDID=$udid" >> "$GITHUB_ENV"
+        run: bash scripts/ci-boot-simulator.sh
       # Debug loads the JS from Metro: built only, not run
       - name: Simulator build (Debug)
         working-directory: example/ios
@@ -487,5 +440,125 @@ jobs:
           path: |
             ios-*.png
             example/ios/xcodebuild-*.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # React Native 0.86.3 and 0.87.1 on iOS: a new app from the CLI template of each version (RnApp) with the example's
+  # App.tsx and schema.ts, built with frameworks (the case of realm/realm-js#7157, a link error on React Native
+  # >= 0.86) on the newest released Xcode >= 26.4, and run on the simulator like the ios job.
+  ios-rn:
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.ios)
+    needs: packages
+    runs-on: macos-26
+    # Release simulator build, then the device build
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      # dynamic frameworks; static too on pushes to main and with ios_set all
+      matrix:
+        rn: ['0.86.3', '0.87.1']
+        frameworks: ${{ fromJSON((github.event_name == 'push' || inputs.ios_set == 'all') && '["dynamic","static"]' || '["dynamic"]') }}
+    name: ios-rn (React Native ${{ matrix.rn }}, frameworks ${{ matrix.frameworks }})
+    env:
+      USE_FRAMEWORKS: ${{ matrix.frameworks }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Xcode newest (released, not beta)
+        run: bash scripts/ci-xcode.sh newest
+      - name: Packages from the packages job
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            bridge/out/*.tgz
+            react/out/*.tgz
+          key: packages-${{ github.sha }}
+          fail-on-cache-miss: true
+      - name: Packages (same SHA-256 as in the packages job)
+        run: ls -l bridge/out/*.tgz react/out/*.tgz && shasum -a 256 bridge/out/*.tgz react/out/*.tgz
+      - name: New app from the React Native ${{ matrix.rn }} template, with the example's App.tsx and schema.ts
+        env:
+          RN: ${{ matrix.rn }}
+        run: |
+          # the CLI refuses dots in project names; --version picks the template of that React Native version
+          npx --yes @react-native-community/cli@latest init RnApp --version "$RN" --skip-git-init --install-pods false --skip-install
+          cp example/App.tsx example/schema.ts RnApp/
+          # realm and @realm/react from the tarballs of the packages job, as in the example app
+          node -e '
+            const fs = require("fs");
+            const file = "RnApp/package.json";
+            const p = JSON.parse(fs.readFileSync(file, "utf8"));
+            p.dependencies.realm = "file:../bridge/out/pomwik-afterdb-20.3.0.tgz";
+            p.dependencies["@realm/react"] = "file:../react/out/pomwik-afterdb-react-0.20.1.tgz";
+            fs.writeFileSync(file, JSON.stringify(p, null, 2) + "\n");
+            console.log(JSON.stringify(p.dependencies, null, 2));
+          '
+      - name: Install the app (realm and @realm/react from the afterdb packages)
+        working-directory: RnApp
+        env:
+          RN: ${{ matrix.rn }}
+        run: |
+          npm install --no-audit --no-fund
+          name=$(node -p 'require("./node_modules/realm/package.json").name')
+          [ "$name" = "@pomwik/afterdb" ] || { echo "::error::realm is $name, not @pomwik/afterdb"; exit 1; }
+          rn=$(node -p 'require("./node_modules/react-native/package.json").version')
+          [ "$rn" = "$RN" ] || { echo "::error::react-native is $rn, not $RN"; exit 1; }
+          echo "realm: $name $(node -p 'require("./node_modules/realm/package.json").version'), react-native $rn"
+      - name: Typecheck the app
+        working-directory: RnApp
+        run: npx tsc --noEmit
+      - name: pod install (USE_FRAMEWORKS=${{ matrix.frameworks }})
+        working-directory: RnApp/ios
+        run: bundle install && bundle exec pod install
+      - name: Boot an iPhone simulator (newest iOS runtime of the selected Xcode)
+        run: bash scripts/ci-boot-simulator.sh
+      - name: Simulator build (Release)
+        working-directory: RnApp/ios
+        run: |
+          # full log in a file: on failure, print the errors and the end of the log
+          if ! xcodebuild -workspace RnApp.xcworkspace -scheme RnApp -configuration Release \
+              -destination "id=$SIM_UDID" -derivedDataPath build ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO build \
+              > xcodebuild-sim.log 2>&1; then
+            grep -E '(error|fatal error):|BUILD FAILED' xcodebuild-sim.log | head -100 || true
+            tail -80 xcodebuild-sim.log
+            exit 1
+          fi
+          tail -5 xcodebuild-sim.log
+      - name: Self-check on the simulator (2 launches, result read from the app's realm file)
+        working-directory: RnApp
+        env:
+          SHOT: ${{ github.workspace }}/ios-rn-${{ matrix.rn }}-${{ matrix.frameworks }}.png
+        run: |
+          app=ios/build/Build/Products/Release-iphonesimulator/RnApp.app
+          id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist")
+          echo "bundle id: $id"
+          bash ../scripts/ios-selfcheck.sh "$app" "$id" "$SHOT"
+      - name: Device build (Release, generic iOS device, no signing)
+        working-directory: RnApp/ios
+        run: |
+          if ! xcodebuild -workspace RnApp.xcworkspace -scheme RnApp -configuration Release \
+              -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build \
+              > xcodebuild-device.log 2>&1; then
+            grep -E '(error|fatal error):|BUILD FAILED' xcodebuild-device.log | head -100 || true
+            tail -80 xcodebuild-device.log
+            exit 1
+          fi
+          tail -5 xcodebuild-device.log
+          app=build/Build/Products/Release-iphoneos/RnApp.app
+          lipo -info "$app/RnApp"
+          find "$app" -maxdepth 2 -name '*.framework' | sed 's|.*/||' | sort | tr '\n' ' '; echo
+          # with dynamic frameworks, the Realm binding must be embedded in the app
+          if [ "$USE_FRAMEWORKS" = dynamic ] && [ ! -d "$app/Frameworks/RealmJS.framework" ]; then
+            echo "::error::RealmJS.framework is not embedded in $app"; exit 1
+          fi
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-rn-${{ matrix.rn }}-${{ matrix.frameworks }}
+          path: |
+            ios-rn-*.png
+            RnApp/ios/xcodebuild-*.log
           if-no-files-found: ignore
           retention-days: 7

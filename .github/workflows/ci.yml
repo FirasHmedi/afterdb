@@ -200,10 +200,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { api: 24, target: google_apis, label: 'Android 7 (minSdk)' }
-          - { api: 30, target: google_apis, label: 'Android 11' }
-          - { api: 36, target: google_apis, label: 'Android 16' }
-          - { api: 36, target: google_apis_ps16k, label: 'Android 16, 16 KB pages' }
+          # the old API 24 image does not boot with 4 cores / 4 GB: the defaults stay for 24 and 30
+          - { api: 24, target: google_apis, label: 'Android 7 (minSdk)', cores: 2, ram: '' }
+          - { api: 30, target: google_apis, label: 'Android 11', cores: 2, ram: '' }
+          - { api: 36, target: google_apis, label: 'Android 16', cores: 4, ram: 4096M }
+          - { api: 36, target: google_apis_ps16k, label: 'Android 16, 16 KB pages', cores: 4, ram: 4096M }
     name: android-run (${{ matrix.label }})
     steps:
       - uses: actions/checkout@v7
@@ -222,8 +223,8 @@ jobs:
           target: ${{ matrix.target }}
           arch: x86_64
           disable-animations: true
-          cores: 4
-          ram-size: 4096M
+          cores: ${{ matrix.cores }}
+          ram-size: ${{ matrix.ram }}
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
           script: bash scripts/android-selfcheck.sh app-release.apk com.afterdbexample android-${{ matrix.api }}-${{ matrix.target }}.png
       - if: always()

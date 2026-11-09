@@ -196,7 +196,7 @@ jobs:
     if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.emulators)
     needs: android
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 55
     strategy:
       fail-fast: false
       matrix:
@@ -218,6 +218,21 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
       - name: Self-check on the emulator
+        id: emu1
+        continue-on-error: true
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: ${{ matrix.api }}
+          target: ${{ matrix.target }}
+          arch: x86_64
+          disable-animations: true
+          cores: ${{ matrix.cores }}
+          ram-size: ${{ matrix.ram }}
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
+          script: bash scripts/android-selfcheck.sh app-release.apk com.afterdbexample android-${{ matrix.api }}-${{ matrix.target }}.png
+      # a GitHub-hosted emulator sometimes never finishes booting: one retry
+      - name: Self-check on the emulator (retry)
+        if: steps.emu1.outcome == 'failure'
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: ${{ matrix.api }}
@@ -304,7 +319,7 @@ jobs:
     if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.emulators)
     needs: expo-android
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
@@ -316,6 +331,21 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
       - name: Self-check on the emulator
+        id: emu2
+        continue-on-error: true
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          cores: 4
+          ram-size: 4096M
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
+          script: bash scripts/android-selfcheck.sh app-release.apk com.afterdbexample.expo58 expo58-android-36.png
+      # a GitHub-hosted emulator sometimes never finishes booting: one retry
+      - name: Self-check on the emulator (retry)
+        if: steps.emu2.outcome == 'failure'
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: 36

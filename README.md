@@ -44,7 +44,7 @@ If you landed here from one of these errors with `realm` 20.x, switching the two
 | `Undefined symbols for architecture …` (`jsi::Value::as…`) | iOS link, React Native 0.86+ | realm/realm-js#7157 |
 | `npm ci` hangs on `prebuild-install --runtime napi`, or `Failed to download prebuild for Realm` | install, CI (Node 22) | realm/realm-js#7119, #7068 |
 | `CMake Error: Downloading ... Failed. Status: 28;"Timeout was reached"` (static.realm.io) | Android build | realm/realm-js#7044 |
-| `postinstall: Error: ENOENT … submit-analytics` | install (pnpm, monorepos) | realm/realm-js#7126 |
+| `postinstall: Error: ENOENT: no such file or directory, open '…/realm/bindgen/vendor/realm-core/dependencies.yml'` (analytics script) | install (pnpm, monorepos) | realm/realm-js#7126 |
 | `Failed to apply plugin 'com.facebook.react.rootproject'` with `@realm/react` | Android build (nested react-native) | realm/realm-js#7066 |
 | App crashes at start in release builds with R8 (`ClassNotFoundException: io.realm.react.util.SSLHelper`) | Android release, Expo SDK 58 | found while testing afterdb |
 
@@ -94,7 +94,7 @@ Both packages are on npm since 2026-11-08: [`@pomwik/afterdb`](https://www.npmjs
 - SwiftPM (React Native 0.89): design note in `docs/SWIFTPM.md`, not implemented yet.
 - Debug builds on React Native 0.83 and later (React 19.2 and later): React's performance track reads the props of
   rendered components, including Realm objects that were just deleted, and reading a deleted Realm object throws.
-  Release builds are not affected. This is a React bug (facebook/react#35126); a fix is proposed in facebook/react#36867
+  Release builds are not affected. This is a React bug (react/react#35126); a fix is proposed in react/react#36867
   but not merged (see also realm/realm-js#7086). To avoid it: key list rows by primary key, or pass ids and read
   the object with `useObject`; update embedded objects in place instead of replacing them; or patch React Native's
   dev renderer with patch-package.

@@ -1,5 +1,5 @@
 {
-  "name": "afterdb-workspace",
+  "name": "@pomwik/afterdb",
   "private": true,
   "type": "module",
   "scripts": {

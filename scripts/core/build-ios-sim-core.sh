@@ -6,9 +6,8 @@
 # builds arm64 and x86_64 into one file), and no ccache.
 #
 # Usage: scripts/core/build-ios-sim-core.sh <work dir> [arch]      (arch: arm64 by default, or x86_64)
-# Env:   AFTERDB_IS_POD_PATCH=1 first applies to realm-core's src/external/s2/base/macros.h the change afterdb ships in
-#        the xcframework headers for Xcode 26.4 (realm/realm-js#7115, bridge/build.mjs step 5): DECLARE_POD and
-#        PROPAGATE_POD_FROM_TEMPLATE_ARGUMENT no longer specialize std::is_pod.
+# Env:   AFTERDB_CORE_PATCHES=1 applies scripts/core/patches/*.patch first. Xcode 26.6 does not build the unchanged
+#        sources: see docs/CORE-FROM-SOURCE.md.
 # Needs: macOS with Xcode (xcodebuild, libtool), CMake, git
 # Output: <work dir>/librealm-combined-iphonesimulator-<arch>.a
 set -euo pipefail
@@ -19,33 +18,6 @@ WORK="$(cd "$1" && pwd -P)"
 ARCH="${2:-arm64}"
 
 SRC="$(bash "$HERE/fetch-core.sh" "$WORK")"
-MACROS="$SRC/src/external/s2/base/macros.h"
-git -C "$SRC" checkout -- src/external/s2/base/macros.h
-if [ "${AFTERDB_IS_POD_PATCH:-}" = 1 ]; then
-  node - "$MACROS" <<'EOF'
-const fs = require('fs');
-const file = process.argv[2];
-let text = fs.readFileSync(file, 'utf8');
-const changes = [
-  [
-    'namespace std {                                    \\\ntemplate<> struct is_pod<TypeName> : true_type { }; \\\n}                                                   \\\n',
-    '',
-  ],
-  [
-    'namespace std {                                                       \\\ntemplate <typename T> struct is_pod<TemplateName<T> > : std::is_trivial<T> { }; \\\n}                                                                      \\\n',
-    '',
-  ],
-];
-for (const [from, to] of changes) {
-  const n = text.split(from).length - 1;
-  if (n !== 1) throw new Error(`${file}: expected 1 occurrence, found ${n}:\n${from}`);
-  text = text.replace(from, to);
-}
-fs.writeFileSync(file, text);
-console.log(`${file}: no std::is_pod specialization any more (AFTERDB_IS_POD_PATCH=1)`);
-EOF
-  if grep -n 'struct is_pod' "$MACROS"; then echo "std::is_pod still specialized in $MACROS"; exit 1; fi
-fi
 
 BUILD="$WORK/build-xcode-iphonesimulator-$ARCH"
 rm -rf "$BUILD"
@@ -59,13 +31,15 @@ cmake -G Xcode -S "$SRC" -B "$BUILD" \
   -D "REALM_VERSION=$CORE_VERSION" \
   -D REALM_BUILD_LIB_ONLY=ON
 
-# 2. Archive: the arguments of upstream's xcode.archive, plus ARCHS (one architecture)
+# 2. Archive: the arguments of upstream's xcode.archive, plus ARCHS (one architecture) and, so that one run lists every
+#    compile error, IDEBuildingContinueBuildingAfterErrors
 ARCHIVE="$BUILD/iphonesimulator.xcarchive"
 (cd "$BUILD" && xcodebuild archive -scheme ALL_BUILD -configuration Release -sdk iphonesimulator \
   -archivePath "$ARCHIVE" -destination 'generic/platform=iOS Simulator' \
   BUILD_LIBRARY_FOR_DISTRIBUTION=YES SKIP_INSTALL=NO INSTALL_PATH=/usr/local/lib "ARCHS=$ARCH" \
+  -IDEBuildingContinueBuildingAfterErrors=YES \
   > "$WORK/xcodebuild-core-iphonesimulator-$ARCH.log" 2>&1) || {
-  grep -E '(error|fatal error):|ARCHIVE FAILED' "$WORK/xcodebuild-core-iphonesimulator-$ARCH.log" | head -60
+  grep -E '(error|fatal error):|ARCHIVE FAILED' "$WORK/xcodebuild-core-iphonesimulator-$ARCH.log" | sort | uniq -c | head -80
   tail -40 "$WORK/xcodebuild-core-iphonesimulator-$ARCH.log"
   exit 1
 }

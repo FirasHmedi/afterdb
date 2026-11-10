@@ -7,7 +7,9 @@
 # realm-js: it points to 5064bb5, a 12.15.0 commit whose submodule is realm-core 14.14.0.
 #
 # Usage: scripts/core/fetch-core.sh <work dir>
+# Env:   AFTERDB_CORE_PATCHES=1 applies scripts/core/patches/*.patch (needed by Xcode 26.6, see docs/CORE-FROM-SOURCE.md)
 set -euo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
 CORE_COMMIT=15493076ad9fef22c16cc64cbfbf9e5b65c385f9
 CORE_VERSION=20.1.0
 
@@ -24,4 +26,12 @@ fi
 git -C "$SRC" submodule update --init --depth 1 src/external/sha-1 src/external/sha-2 >&2
 [ "$(git -C "$SRC" rev-parse HEAD)" = "$CORE_COMMIT" ] || { echo "realm-core is not at $CORE_COMMIT" >&2; exit 1; }
 grep -q "^VERSION: $CORE_VERSION\$" "$SRC/dependencies.yml" || { echo "dependencies.yml does not say VERSION: $CORE_VERSION" >&2; exit 1; }
+# the sources as committed (a previous run may have applied the patches or regenerated the parser)
+git -C "$SRC" checkout -q -- .
+if [ "${AFTERDB_CORE_PATCHES:-}" = 1 ]; then
+  for p in "$HERE"/patches/*.patch; do
+    git -C "$SRC" apply "$p"
+    echo "applied $(basename "$p")" >&2
+  done
+fi
 echo "$SRC"

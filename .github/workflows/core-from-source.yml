@@ -186,15 +186,10 @@ jobs:
           check "pkg/pomwik-afterdb-$AFTERDB.tgz" "$AFTERDB_INTEGRITY"
           check "react/out/pomwik-afterdb-react-$AFTERDB_REACT.tgz" "$AFTERDB_REACT_INTEGRITY"
           tar -xzf "pkg/pomwik-afterdb-$AFTERDB.tgz" -C pkg
-      # realm-core's sources unchanged first; with afterdb's std::is_pod change (realm/realm-js#7115) only if that fails
-      - name: Build realm-core from source (unchanged sources)
-        id: plain
-        continue-on-error: true
-        run: time bash scripts/core/build-ios-sim-core.sh "$RUNNER_TEMP/core" arm64
-      - name: Build realm-core from source (with the std::is_pod change, because the build above failed)
-        if: steps.plain.outcome == 'failure'
+      # Xcode 26.6 does not build the unchanged sources (run 42726972499): the patches of scripts/core/patches are applied
+      - name: Build realm-core from source (with scripts/core/patches)
         env:
-          AFTERDB_IS_POD_PATCH: 1
+          AFTERDB_CORE_PATCHES: 1
         run: time bash scripts/core/build-ios-sim-core.sh "$RUNNER_TEMP/core" arm64
       - name: Compare with the prebuilt engine of the package
         run: bash scripts/core/compare-ios-sim-core.sh pkg/package "$RUNNER_TEMP/core/librealm-combined-iphonesimulator-arm64.a" arm64 | tee compare-ios-sim-arm64.txt

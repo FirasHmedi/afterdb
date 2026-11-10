@@ -5,8 +5,10 @@
 #    of generation 1 against the generator and the recorded SHA-256, then writes generation 2;
 # 3. adb install -r -d A again, launch: it checks generations 1 and 2, then writes generation 3.
 # Each launch must show "AFTERDB_UPGRADE_OK stage=<n> history=<writers> items=<n x 120>" (read with uiautomator).
-# With CHECK_ABI=<abi>, also checks after each stage that the process loaded lib/<abi>/librealm.so of the APK
-# (scripts/android-loaded-realm.sh).
+# A and B may hold different ABIs (one each): on an x86_64 image with ARM translation, A can be the x86_64 build
+# and B the armeabi-v7a build; the files stay in place when the update changes the app's ABI.
+# With CHECK_LOADED=1, also checks after each stage that the process loaded lib/<abi>/librealm.so of the APK
+# that was installed (scripts/android-loaded-realm.sh).
 # Usage: scripts/android-upgrade.sh <A.apk> <A writer> <B.apk> <B writer> <package> <out dir>
 #   writer: name@version of the package installed as "realm" in that build, e.g. realm@20.2.0
 set -euo pipefail
@@ -17,6 +19,13 @@ sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
 bt=$(ls -d "$sdk"/build-tools/* | sort -V | tail -1)
 pkgname() { "$bt/aapt2" dump badging "$1" | sed -n "s/^package: name='\([^']*\)'.*/\1/p"; }
 cert() { "$bt/apksigner" verify --print-certs "$1" | awk -F'SHA-256 digest: ' '!f && NF > 1 { print $2; f = 1 }'; }
+# ABI of the librealm.so in an APK (one ABI per APK)
+abi() {
+  local dirs
+  dirs=$(unzip -Z1 "$1" 'lib/*/librealm.so' | cut -d/ -f2 | sort -u | tr '\n' ' ')
+  [ "$(wc -w <<<"$dirs")" -eq 1 ] || { echo "::error::$1 holds librealm.so for: ${dirs:-none} (expected one ABI)" >&2; return 1; }
+  echo "${dirs% }"
+}
 
 # same application id and same signing certificate: otherwise install -r fails or installs another app
 for apk in "$A" "$B"; do
@@ -25,8 +34,9 @@ for apk in "$A" "$B"; do
 done
 ca=$(cert "$A"); cb=$(cert "$B")
 { [ -n "$ca" ] && [ "$ca" = "$cb" ]; } || { echo "::error::signing certificates differ: A $ca, B $cb"; exit 1; }
-echo "A: $A ($WA)"
-echo "B: $B ($WB)"
+abi_a=$(abi "$A"); abi_b=$(abi "$B")
+echo "A: $A ($WA, $abi_a)"
+echo "B: $B ($WB, $abi_b)"
 echo "both: package $PKG, signing certificate SHA-256 $ca"
 echo "device: Android $(adb shell getprop ro.build.version.release | tr -d '\r') (API $(adb shell getprop ro.build.version.sdk | tr -d '\r')), ABIs $(adb shell getprop ro.product.cpu.abilist | tr -d '\r')"
 
@@ -34,10 +44,10 @@ echo "device: Android $(adb shell getprop ro.build.version.release | tr -d '\r')
 installed() { adb shell dumpsys package "$PKG" | tr -d '\r' | awk -v k="$1" '!f && index($0, k) { sub(/^ */, ""); print; f = 1 }'; }
 
 stage() { # <n> <expected history> <apk>
-  local n="$1" apk="$3" ui="" ok=""
+  local n="$1" apk="$3" ui="" ok="" crashed=""
   local want="AFTERDB_UPGRADE_OK stage=$n history=$2 items=$((n * 120))"
-  echo "== stage $n: $(installed versionCode) $(installed lastUpdateTime)"
-  adb logcat -c || true
+  echo "== stage $n: $(installed versionCode) $(installed lastUpdateTime) $(installed primaryCpuAbi)"
+  adb logcat -b main -b system -b crash -c || true
   adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS >/dev/null 2>&1 || true
   adb shell am start -W -n "$PKG/.MainActivity" >/dev/null
   for i in $(seq 1 120); do
@@ -48,6 +58,8 @@ stage() { # <n> <expected history> <apk>
         adb shell input keyevent KEYCODE_BACK >/dev/null 2>&1 || true
         adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS >/dev/null 2>&1 || true
       fi
+      # a crash of this app (native or Java) ends the stage at once
+      if adb logcat -d -b crash 2>/dev/null | grep -qE ">>> $PKG <<<|Process: $PKG,"; then crashed=1; break; fi
       if [ $((i % 30)) = 0 ]; then adb shell am start -n "$PKG/.MainActivity" >/dev/null 2>&1 || true; fi
       sleep 2; continue
     fi
@@ -59,15 +71,16 @@ stage() { # <n> <expected history> <apk>
   printf '%s\n' "$ui" > "$OUT/stage-$n-screen.xml"
   echo "screen: $(grep -oE 'AFTERDB_UPGRADE_[A-Z]+[^"]*' <<<"$ui" | head -1 || true)"
   echo "        $(grep -oE '(built with|plain:|encrypted:) [^"]*' <<<"$ui" | tr '\n' ';' || true)"
-  if [ -n "$ok" ] && [ -n "${CHECK_ABI:-}" ]; then bash "$HERE/android-loaded-realm.sh" "$PKG" "$apk" "$CHECK_ABI" || ok=""; fi
-  adb logcat -d > "$OUT/stage-$n-logcat.txt" 2>/dev/null || true
+  if [ -n "$ok" ] && [ "${CHECK_LOADED:-}" = 1 ]; then bash "$HERE/android-loaded-realm.sh" "$PKG" "$apk" "$(abi "$apk")" || ok=""; fi
+  adb logcat -d -b main -b system -b crash > "$OUT/stage-$n-logcat.txt" 2>/dev/null || true
   adb shell am force-stop "$PKG"
   if [ -z "$ok" ]; then
+    if [ -n "$crashed" ]; then echo "::error::stage $n: $PKG crashed"; fi
     echo "::error::stage $n: the screen does not show \"$want\""
     grep -E 'ReactNativeJS|AndroidRuntime|libc|DEBUG' "$OUT/stage-$n-logcat.txt" | tail -60 || true
     exit 1
   fi
-  if grep -A1 'FATAL EXCEPTION' "$OUT/stage-$n-logcat.txt" | grep -qF "Process: $PKG,"; then
+  if grep -qE ">>> $PKG <<<|Process: $PKG," "$OUT/stage-$n-logcat.txt"; then
     echo "::error::stage $n: $PKG crashed"; exit 1
   fi
 }

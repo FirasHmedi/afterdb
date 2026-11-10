@@ -4,16 +4,24 @@ name: Upgrade
 #
 # Upgrade test: the example app in upgrade mode (ENTRY_FILE=index.upgrade.js, example/upgrade/data.ts) is built
 # with the official realm@20.2.0 and @realm/react@0.20.0 (A), and with afterdb (B): the packages built from this
-# commit, and on Android also the packages published on npmjs.com. Same application id, same signing key. On one
-# emulator or simulator: A writes a plain and an encrypted file (64-byte key) and records a SHA-256 of the content,
-# B is installed over it (adb install -r, simctl install), checks every object and writes more, then A is
-# installed again (adb install -r -d) and checks the objects of both.
+# commit, and the packages published on npmjs.com. Same application id, same signing key. On one emulator or
+# simulator: A writes a plain and an encrypted file (64-byte key) and records a SHA-256 of the content, B is
+# installed over it (adb install -r, simctl install), checks every object and writes more, then A is installed
+# again (adb install -r -d) and checks the objects of both.
 #
-# ABIs: the example's self-check (default entry, scripts/android-selfcheck.sh) from an APK that holds only
-# armeabi-v7a, on an x86_64 Android 11 image with ARM translation, and only x86, on an x86 Android 11 image.
-# The armeabi-v7a image also runs the upgrade test with armeabi-v7a APKs. The armeabi-v7a APKs extract their native
-# libraries (useLegacyPackaging), and their official realm binding is compiled with the app's NDK (see the
-# android-build job); the other APKs are built as the app is.
+# Android images and APKs (one ABI per APK):
+#   x86_64 Android 16      upgrade, A and B x86_64
+#   x86 Android 11         self-check of B x86; upgrade, A and B x86 (32-bit on both sides)
+#   x86_64 Android 11      self-check of B armeabi-v7a through the image's ARM translation; upgrade with A x86_64
+#     (ARM translation)    and B armeabi-v7a: the files written by the official x86_64 build are opened by
+#                          afterdb's armeabi-v7a build, and read back by the official build.
+# The official realm@20.2.0 armeabi-v7a APK cannot be A on that image: it stops at start in OpenSSL's CPU feature
+# probe, which runs as a constructor of librealm.so and wraps SIGILL probes in sigsetjmp/siglongjmp (a register of
+# the crashed thread holds the return address of that sigsetjmp call). The job records that crash (scripts/android-start-crash.sh: tombstone, offset in librealm.so, the call before it)
+# with a warning; it is not a test of afterdb. afterdb's armeabi-v7a librealm.so imports getauxval and neither
+# sigsetjmp nor siglongjmp, and its self-check runs on the same image.
+# The armeabi-v7a APKs extract their native libraries (useLegacyPackaging, see the android-build job); the other
+# APKs are built as the app is.
 on:
   pull_request:
     paths:
@@ -23,6 +31,8 @@ on:
       - scripts/android-upgrade.sh
       - scripts/android-abi-check.sh
       - scripts/android-loaded-realm.sh
+      - scripts/android-start-crash.sh
+      - scripts/crash-in-lib.py
       - scripts/apk-openssl.sh
       - scripts/ios-upgrade.sh
       - scripts/read-upgrade-result.mjs
@@ -37,6 +47,8 @@ on:
       - scripts/android-upgrade.sh
       - scripts/android-abi-check.sh
       - scripts/android-loaded-realm.sh
+      - scripts/android-start-crash.sh
+      - scripts/crash-in-lib.py
       - scripts/apk-openssl.sh
       - scripts/ios-upgrade.sh
       - scripts/read-upgrade-result.mjs
@@ -118,8 +130,8 @@ jobs:
           key: upgrade-packages-${{ github.sha }}
 
   # Release APKs of the example app, one ABI each:
-  #   upgrade-x86_64.apk, upgrade-armeabi-v7a.apk   upgrade mode (all three sources)
-  #   selfcheck-armeabi-v7a.apk, selfcheck-x86.apk  default entry, the self-check (afterdb only)
+  #   upgrade-x86_64.apk, upgrade-x86.apk, upgrade-armeabi-v7a.apk   upgrade mode (all three sources)
+  #   selfcheck-armeabi-v7a.apk, selfcheck-x86.apk                    default entry, the self-check (afterdb only)
   android-build:
     needs: packages
     runs-on: ubuntu-24.04
@@ -193,29 +205,20 @@ jobs:
           # libraries kept uncompressed in the APK), React Native's SoLoader looks in base.apk!/lib/x86 in the translated
           # process and the app stops at start, before any realm code (run 42726695976: SoLoaderDSONotFoundError:
           # couldn't find DSO to load: libreactnative.so). These APKs extract their libraries (lib/arm) instead.
-          # The official realm package compiles its binding with AGP's default NDK (r28c here), not the app's
-          # (ndkVersion 27.1); that armeabi-v7a APK stopped at start under ARM translation (run 42729502999:
-          # SIGSEGV, null pointer, pc 0). For armeabi-v7a, the official binding is compiled with the app's NDK, as
-          # afterdb does.
-          cat > "$RUNNER_TEMP/armeabi-v7a.gradle" <<'EOF'
+          cat > "$RUNNER_TEMP/extract-native-libs.gradle" <<'EOF'
           allprojects {
             plugins.withId('com.android.application') {
               android.packaging.jniLibs.useLegacyPackaging = true
             }
-            plugins.withId('com.android.library') {
-              if (project.name == 'realm') {
-                android.ndkVersion = rootProject.ext.ndkVersion
-              }
-            }
           }
           EOF
           bt=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
-          builds="upgrade:x86_64 upgrade:armeabi-v7a"
+          builds="upgrade:x86_64 upgrade:x86 upgrade:armeabi-v7a"
           case "$REALM_SOURCE" in afterdb-*) builds="$builds selfcheck:armeabi-v7a selfcheck:x86" ;; esac
           for b in $builds; do
             IFS=: read -r mode abi <<<"$b"
             if [ "$mode" = upgrade ]; then entry=index.upgrade.js; else entry=index.js; fi
-            init=(); if [ "$abi" = armeabi-v7a ]; then init=(-I "$RUNNER_TEMP/armeabi-v7a.gradle"); fi
+            init=(); if [ "$abi" = armeabi-v7a ]; then init=(-I "$RUNNER_TEMP/extract-native-libs.gradle"); fi
             echo "::group::$mode $abi (ENTRY_FILE=$entry ${init[*]})"
             # --no-daemon: each build reads ENTRY_FILE from its own environment
             if ! ENTRY_FILE=$entry ./gradlew "${init[@]}" assembleRelease -PreactNativeArchitectures="$abi" --no-daemon --console=plain > "gradle-$mode-$abi.log" 2>&1; then
@@ -228,8 +231,8 @@ jobs:
             apk="../../apks/$mode-$abi.apk"
             cp app/build/outputs/apk/release/app-release.apk "$apk"
             echo "$apk: $("$bt/aapt2" dump xmltree --file AndroidManifest.xml "$apk" | grep -o 'extractNativeLibs.*' || echo 'extractNativeLibs not set (libraries stay in the APK)')"
-            # NDK that compiled librealm.so (.note.android.ident)
-            echo "$apk: librealm.so NDK $(unzip -p "$apk" "lib/$abi/librealm.so" | strings -a | grep -m1 -E '^r[0-9]{2}[a-z]?$' || echo unknown)"
+            # NDK that compiled librealm.so (.note.android.ident; the official package uses AGP's default NDK)
+            echo "$apk: librealm.so NDK $(unzip -p "$apk" "lib/$abi/librealm.so" | strings -a | awk '/^r[0-9][0-9][a-z]?$/ && !f { print; f = 1 }')"
           done
           ls -l ../../apks
       - name: OpenSSL linked into librealm.so (3.3.1 from static.realm.io for realm@20.2.0, 3.5.9 for afterdb)
@@ -261,18 +264,20 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # abi: the ABI of B (afterdb) and of the self-check APK; a_abi: the ABI of A (official realm@20.2.0)
         include:
-          - { realm: afterdb-commit, api: 36, arch: x86_64, cores: 4, ram: 4096M, abi: x86_64, selfcheck: false, upgrade: true, label: 'upgrade, x86_64, Android 16' }
-          - { realm: afterdb-npm, api: 36, arch: x86_64, cores: 4, ram: 4096M, abi: x86_64, selfcheck: false, upgrade: true, label: 'upgrade, x86_64, Android 16' }
-          - { realm: afterdb-commit, api: 30, arch: x86_64, cores: 2, ram: '', abi: armeabi-v7a, selfcheck: true, upgrade: true, label: 'armeabi-v7a, ARM translation, Android 11' }
-          - { realm: afterdb-npm, api: 30, arch: x86_64, cores: 2, ram: '', abi: armeabi-v7a, selfcheck: true, upgrade: true, label: 'armeabi-v7a, ARM translation, Android 11' }
-          - { realm: afterdb-commit, api: 30, arch: x86, cores: 2, ram: '', abi: x86, selfcheck: true, upgrade: false, label: 'x86, x86 image, Android 11' }
-          - { realm: afterdb-npm, api: 30, arch: x86, cores: 2, ram: '', abi: x86, selfcheck: true, upgrade: false, label: 'x86, x86 image, Android 11' }
+          - { realm: afterdb-commit, api: 36, arch: x86_64, cores: 4, ram: 4096M, abi: x86_64, a_abi: x86_64, selfcheck: false, record: false, label: 'upgrade, x86_64, Android 16' }
+          - { realm: afterdb-npm, api: 36, arch: x86_64, cores: 4, ram: 4096M, abi: x86_64, a_abi: x86_64, selfcheck: false, record: false, label: 'upgrade, x86_64, Android 16' }
+          - { realm: afterdb-commit, api: 30, arch: x86_64, cores: 2, ram: '', abi: armeabi-v7a, a_abi: x86_64, selfcheck: true, record: true, label: 'armeabi-v7a, ARM translation, Android 11' }
+          - { realm: afterdb-npm, api: 30, arch: x86_64, cores: 2, ram: '', abi: armeabi-v7a, a_abi: x86_64, selfcheck: true, record: true, label: 'armeabi-v7a, ARM translation, Android 11' }
+          - { realm: afterdb-commit, api: 30, arch: x86, cores: 2, ram: '', abi: x86, a_abi: x86, selfcheck: true, record: false, label: 'x86, x86 image, Android 11' }
+          - { realm: afterdb-npm, api: 30, arch: x86, cores: 2, ram: '', abi: x86, a_abi: x86, selfcheck: true, record: false, label: 'x86, x86 image, Android 11' }
     name: android-run (${{ matrix.label }}, ${{ matrix.realm }})
     env:
       ABI: ${{ matrix.abi }}
+      A_ABI: ${{ matrix.a_abi }}
       SELFCHECK: ${{ matrix.selfcheck }}
-      UPGRADE: ${{ matrix.upgrade }}
+      RECORD: ${{ matrix.record }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
@@ -293,11 +298,21 @@ jobs:
           if [ "$SELFCHECK" = true ]; then
             bash scripts/android-abi-check.sh "apks-b/selfcheck-$ABI.apk" com.afterdbexample "$ABI" out
           fi
-          if [ "$UPGRADE" = true ]; then
-            CHECK_ABI="$ABI" bash scripts/android-upgrade.sh \
-              "apks-a/upgrade-$ABI.apk" "$(cat apks-a/writer.txt)" "apks-b/upgrade-$ABI.apk" "$(cat apks-b/writer.txt)" \
-              com.afterdbexample out
+          if [ "$RECORD" = true ]; then
+            # the official realm@20.2.0 APK of this ABI, launched once: a record, not a test of afterdb
+            rc=0
+            bash scripts/android-start-crash.sh "apks-a/upgrade-$ABI.apk" com.afterdbexample librealm.so "out/official-$ABI" \
+              "apks-b/upgrade-$ABI.apk" "apks-a/upgrade-$A_ABI.apk" || rc=$?
+            case "$rc" in
+              0) echo "::warning::official realm@20.2.0 $ABI APK: native crash at start on this image (recorded in the log of this step); the upgrade test uses its $A_ABI APK as A" ;;
+              2) echo "::warning::official realm@20.2.0 $ABI APK: started without a crash on this image; the upgrade test could use it as A" ;;
+              *) exit 1 ;;
+            esac
           fi
+          # A, then B over it, then A again; checks after each stage which librealm.so the process loaded
+          CHECK_LOADED=1 bash scripts/android-upgrade.sh \
+            "apks-a/upgrade-$A_ABI.apk" "$(cat apks-a/writer.txt)" "apks-b/upgrade-$ABI.apk" "$(cat apks-b/writer.txt)" \
+            com.afterdbexample out
           EOF
       - name: Enable KVM
         run: |
@@ -341,12 +356,14 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  # iOS: realm@20.2.0 builds without frameworks on Xcode 26.6 (not on 26.4): newest released Xcode, no frameworks
+  # iOS: realm@20.2.0 builds without frameworks on Xcode 26.6 (not on 26.4): newest released Xcode, no frameworks.
+  # A (realm@20.2.0) is upgraded to B twice, from a fresh install each time: B built from this commit, and B from
+  # the packages published on npmjs.com.
   ios:
     if: github.event_name != 'workflow_dispatch' || inputs.ios
     needs: packages
     runs-on: macos-26
-    timeout-minutes: 120
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -362,29 +379,32 @@ jobs:
             react/out/*.tgz
           key: upgrade-packages-${{ github.sha }}
           fail-on-cache-miss: true
-      - name: Two copies of the example app (A realm@20.2.0, B afterdb from this commit)
+      - name: Three copies of the example app (A realm@20.2.0, B afterdb from this commit, B afterdb from npm)
         run: |
-          for v in realm afterdb; do
+          for v in realm afterdb-commit afterdb-npm; do
             mkdir "app-$v" && cp -R example/. "app-$v/"
           done
-          cd app-realm
-          node -e '
-            const fs = require("fs");
-            const p = JSON.parse(fs.readFileSync("package.json", "utf8"));
-            p.dependencies.realm = "20.2.0";
-            p.dependencies["@realm/react"] = "0.20.0";
-            fs.writeFileSync("package.json", JSON.stringify(p, null, 2) + "\n");
-          '
-      - name: Install both apps
+          set_realm() { # <app dir> <realm> <@realm/react>
+            (cd "$1" && REALM="$2" REACT="$3" node -e '
+              const fs = require("fs");
+              const p = JSON.parse(fs.readFileSync("package.json", "utf8"));
+              p.dependencies.realm = process.env.REALM;
+              p.dependencies["@realm/react"] = process.env.REACT;
+              fs.writeFileSync("package.json", JSON.stringify(p, null, 2) + "\n");
+            ' && grep -E '"(realm|@realm/react)"' package.json)
+          }
+          set_realm app-realm 20.2.0 0.20.0
+          set_realm app-afterdb-npm npm:@pomwik/afterdb@20.3.0 npm:@pomwik/afterdb-react@0.20.1
+      - name: Install the three apps
         run: |
-          for v in realm afterdb; do
-            src=realm-20.2.0; [ "$v" = afterdb ] && src=afterdb-commit
+          for v in realm afterdb-commit afterdb-npm; do
+            src=$v; [ "$v" = realm ] && src=realm-20.2.0
             (cd "app-$v" && npm install --no-audit --no-fund && bash ../scripts/upgrade-installed.sh "$src" > writer.txt)
             echo "app-$v: $(cat "app-$v/writer.txt")"
           done
-      - name: pod install (both apps, no frameworks)
+      - name: pod install (no frameworks)
         run: |
-          for v in realm afterdb; do
+          for v in realm afterdb-commit afterdb-npm; do
             (cd "app-$v/ios" && bundle install && bundle exec pod install)
             grep -E '^  - RealmJS' "app-$v/ios/Podfile.lock"
           done
@@ -392,7 +412,7 @@ jobs:
         run: bash scripts/ci-boot-simulator.sh
       - name: Simulator builds (Release, ENTRY_FILE=index.upgrade.js)
         run: |
-          for v in realm afterdb; do
+          for v in realm afterdb-commit afterdb-npm; do
             echo "::group::app-$v"
             if ! (cd "app-$v/ios" && xcodebuild -workspace AfterdbExample.xcworkspace -scheme AfterdbExample -configuration Release \
                 -destination "id=$SIM_UDID" -derivedDataPath build ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO \
@@ -404,12 +424,18 @@ jobs:
             tail -3 "app-$v/ios/xcodebuild-sim.log"
             echo "::endgroup::"
           done
-      - name: Upgrade test on the simulator (A, then B over it, then A again)
-        working-directory: app-afterdb
+      - name: Upgrade test on the simulator, B from this commit (A, then B over it, then A again)
+        working-directory: app-afterdb-commit
         run: |
           app=Build/Products/Release-iphonesimulator/AfterdbExample.app
           bash ../scripts/ios-upgrade.sh "../app-realm/ios/build/$app" "$(cat ../app-realm/writer.txt)" \
-            "ios/build/$app" "$(cat writer.txt)" "$GITHUB_WORKSPACE/ios-upgrade"
+            "ios/build/$app" "$(cat writer.txt)" "$GITHUB_WORKSPACE/ios-upgrade/afterdb-commit"
+      - name: Upgrade test on the simulator, B from npm (A, then B over it, then A again)
+        working-directory: app-afterdb-commit
+        run: |
+          app=Build/Products/Release-iphonesimulator/AfterdbExample.app
+          bash ../scripts/ios-upgrade.sh "../app-realm/ios/build/$app" "$(cat ../app-realm/writer.txt)" \
+            "../app-afterdb-npm/ios/build/$app" "$(cat ../app-afterdb-npm/writer.txt)" "$GITHUB_WORKSPACE/ios-upgrade/afterdb-npm"
       - if: always()
         uses: actions/upload-artifact@v7
         with:

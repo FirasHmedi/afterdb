@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { after, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { ANDROID_ABIS, DESCRIPTION, IOS_FALLBACK_MIN, NAME, NODE_TARGETS, OPENSSL, VERSION } from '../build.mjs';
+import { ANDROID_ABIS, DESCRIPTION, DROPPED_KEYWORDS, IOS_FALLBACK_MIN, NAME, NODE_TARGETS, OPENSSL, VERSION } from '../build.mjs';
 import { NAME as REACT_NAME, VERSION as REACT_VERSION } from '../../react/build.mjs';
 
 /** Package metadata of both packages: final names, Pomwik as author, our repository (never MongoDB's) */
@@ -73,6 +73,9 @@ test('package.json: no install-time script, download or analytics', () => {
   assert.ok(!existsSync(join(pkg, 'binding.gyp')), 'npm would run node-gyp at install');
   assert.equal(pj.exports['./scripts/submit-analytics'], undefined);
   assert.ok(pj.keywords.includes('react-native') && pj.keywords.includes('database'));
+  for (const k of ['sqlite', 'rocksdb', 'leveldb', 'async storage', 'asyncstorage']) assert.ok(DROPPED_KEYWORDS.includes(k) && !pj.keywords.includes(k), k);
+  // config.anonymizedBundleId was only read by the removed analytics script
+  assert.equal(pj.config, undefined);
   assertMetadata(pj);
   assert.ok(!existsSync(join(pkg, 'dist/scripts/submit-analytics.js')));
   assert.ok(!existsSync(join(pkg, 'scripts/submit-analytics.js')));
@@ -182,6 +185,7 @@ test('iOS: podspec uses install_modules_dependencies (realm/realm-js#7157)', () 
   assert.match(podspec, /'HEADER_SEARCH_PATHS' => '"\$\{PODS_TARGET_SRCROOT\}\/bindgen\/vendor\/realm-core\/bindgen\/src\/"',/);
   // the stale upstream comment about Sync went with the define, and both changes carry the notice
   assert.doesNotMatch(podspec, /compiled with Sync enabled/);
+  assert.doesNotMatch(podspec, /github\.com\/realm\/realm-js/, 's.source names this project');
   assert.match(podspec, /# Modified by Pomwik \(Firas Hmedi\), 2026[^\n]*REALM_ENABLE_SYNC=1 removed[^\n]*\n\s*'GCC_PREPROCESSOR_DEFINITIONS' => '\$\(inherited\)',\n/);
 });
 
@@ -241,6 +245,7 @@ puts JSON.generate($spec.attrs, ascii_only: true)
   assert.equal(rn.homepage, 'https://github.com/FirasHmedi/afterdb');
   assert.equal(rn.license, 'Apache-2.0');
   assert.equal(rn.pod_target_xcconfig.GCC_PREPROCESSOR_DEFINITIONS, '$(inherited)');
+  assert.deepEqual(rn.source, { git: 'https://github.com/FirasHmedi/afterdb.git', tag: `v${VERSION}` });
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -408,6 +413,7 @@ test('afterdb-react: metadata, and a NOTICE without OpenSSL (the package ships n
   execFileSync('tar', ['-xzf', reactTarball, '-C', dir]);
   const pj = JSON.parse(readFileSync(join(dir, 'package/package.json'), 'utf8'));
   assertMetadata(pj);
+  assert.match(pj.description, /^afterdb /);
   assert.equal(pj.files.filter((f) => f === 'LICENSE').length, 1);
   for (const f of ['NOTICE', 'CHANGES-FROM-UPSTREAM.md']) assert.ok(pj.files.includes(f), f);
   const notice = readFileSync(join(dir, 'package/NOTICE'), 'utf8');

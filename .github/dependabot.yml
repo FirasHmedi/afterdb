@@ -1,0 +1,7 @@
+# Weekly pull requests that update the GitHub Actions used by the workflows (version tags and pinned SHAs)
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

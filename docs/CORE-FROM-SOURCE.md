@@ -5,6 +5,12 @@ without recompiling it (`bridge/build.mjs`). If a new NDK or Xcode, or a CVE fix
 engine, it has to be rebuilt from its source. This page gives the steps that were run and their results. The last
 section lists what was not checked. Nothing here changes the published package.
 
+In short: built from source on a Mac and on GitHub Actions, the Android engine (arm64-v8a and x86_64) has the same
+archive members and global symbols as the prebuilt one, and the example app built with it passed its self-check on
+Android 16 emulators. The iOS simulator arm64 slice needs two small source patches with Xcode 26.6. With them it
+builds on GitHub Actions, its symbols differ from the prebuilt slice, and the example app passed its self-check on an
+iPhone simulator.
+
 Realm® is a trademark of MongoDB, Inc. afterdb is independent and not affiliated with or endorsed by MongoDB.
 
 ## Which realm-core
@@ -14,6 +20,10 @@ Realm® is a trademark of MongoDB, Inc. afterdb is independent and not affiliate
 | realm-js commit of `realm@20.2.0` | `cf86fe01fd5f0aec603c77abdfb187ce5982faf2` ("[20.2.0] Bump version"): `npm view realm@20.2.0 gitHead` |
 | realm-core commit | `15493076ad9fef22c16cc64cbfbf9e5b65c385f9`, tag `v20.1.0`: the submodule `packages/realm/bindgen/vendor/realm-core` at that realm-js commit |
 | realm-core version | `20.1.0` (`dependencies.yml`, which also says `OPENSSL_VERSION: 3.3.1`; realm-js has no `dependencies.list`) |
+
+Checked again on 11 November 2026: `npm view realm@20.2.0 gitHead` gives `cf86fe01`, and the GitHub API
+(`repos/realm/realm-js/contents/packages/realm/bindgen/vendor/realm-core?ref=cf86fe01…`) gives a submodule at
+`15493076`, the commit of realm-core's tag `v20.1.0`.
 
 - The git tag `v20.2.0` of realm-js points to `5064bb5`, a commit whose `packages/realm/package.json` says `12.15.0`
   and whose realm-core submodule is `cccb3ca` (14.14.0). It is not the commit npm published 20.2.0 from.
@@ -39,16 +49,22 @@ and `prebuild-apple` jobs of `.github/workflows/pr-realm-js.yml`:
 |---|---|
 | `scripts/core/fetch-core.sh <work>` | Clones realm-core at `15493076` (depth 1) with the submodules `src/external/sha-1` and `src/external/sha-2`, checks the commit and `VERSION: 20.1.0`, and resets the sources. With `AFTERDB_CORE_PATCHES=1` it then applies `scripts/core/patches/*.patch` |
 | `scripts/core/patches/` | Two source changes that Xcode 26.6 needs (see Results). Android builds do not use them |
-| `scripts/core/build-android-core.sh <afterdb package> <work> [abi]` | Upstream's CMake options for Android. OpenSSL is the archive inside the afterdb package (SHA-256 checked against the value the package records), unpacked where realm-core's CMake looks before downloading: nothing comes from static.realm.io. Output: `<work>/install-android-<abi>/{include,lib,share}`, the layout of `prebuilds/android/<abi>` |
+| `scripts/core/build-android-core.sh <afterdb package> <work> [abi]` | Upstream's CMake options for Android, on Linux or macOS. OpenSSL is the archive inside the afterdb package (SHA-256 checked against the value the package records), unpacked where realm-core's CMake looks before downloading: nothing comes from static.realm.io. Output: `<work>/install-android-<abi>/{include,lib,share}`, the layout of `prebuilds/android/<abi>` |
 | `scripts/core/compare-android-core.sh <afterdb package> <install> [abi]` | Sizes, archive members, defined and undefined global symbols (`llvm-nm` of the NDK), headers and CMake files, against the package |
 | `scripts/core/build-ios-sim-core.sh <work> [arch]` | Upstream's Apple steps for the `iphonesimulator` SDK and one architecture. Output: `<work>/librealm-combined-iphonesimulator-<arch>.a` |
 | `scripts/core/compare-ios-sim-core.sh <afterdb package> <lib> [arch]` | Size, members and symbols against the same architecture of the package's simulator slice |
 | `.github/workflows/core-from-source.yml` | Runs the above on GitHub Actions, puts the result in the published package, builds the example app with it and runs the self-check |
 
 Differences with upstream on Android: CMake 3.22.1 (Android SDK package) instead of 3.29.2, no ccache, and OpenSSL
-3.5.9 (afterdb's archive) instead of 3.3.1. The runners had bison 3.8.2 and flex 2.6.4, the exact versions realm-core
-asks for, so CMake regenerated `src/realm/parser/generated/query_bison.cpp` and `query_flex.cpp`. Without them it uses
-the copies committed in realm-core.
+3.5.9 (afterdb's archive) instead of 3.3.1.
+
+realm-core regenerates its query parser (`src/realm/parser/generated/query_bison.*` and `query_flex.*`) during the
+build when it finds bison 3.8.2 and flex 2.6.4, and otherwise builds the copies committed in realm-core
+(`src/realm/parser/CMakeLists.txt`). The `ubuntu-24.04` runners had both versions, so CMake regenerated the parser
+there. macOS has bison 2.3, which CMake does not use, and Apple's flex 2.6.4 (`flex-34`), which CMake does use. Its
+scanner is not the same as GNU flex's (see "Android on a Mac" below), so on macOS the script turns the parser
+generation off (`CMAKE_DISABLE_FIND_PACKAGE_BISON` and `CMAKE_DISABLE_FIND_PACKAGE_FLEX`) and builds the committed
+copies. At the end the script says whether the parser files differ from the committed ones.
 
 ## Commands
 
@@ -66,6 +82,37 @@ To use the result, replace `include/` and `lib/` of `prebuilds/android/<abi>` in
 `install-android-<abi>`, and keep `share/` and `deps/` (afterdb's CMake changes and OpenSSL). The app's Gradle build
 then compiles the binding (`librealm.so`) against them as usual.
 
+Android on a Mac, as run for the results below. `$AFTERDB` is a checkout of this branch. The commands run in an
+empty folder. NDK 27.1.12297006 and CMake 3.22.1 were already installed with the Android SDK Manager:
+
+```sh
+export ANDROID_HOME="$HOME/Library/Android/sdk"          # the Gradle build fails without it ("SDK location not found")
+mkdir pkg && npm pack @pomwik/afterdb@20.3.0 --pack-destination pkg
+npm view @pomwik/afterdb@20.3.0 dist.integrity           # same sha512 as the one npm pack printed
+tar -xzf pkg/pomwik-afterdb-20.3.0.tgz -C pkg
+time bash "$AFTERDB/scripts/core/build-android-core.sh" pkg/package work arm64-v8a
+bash "$AFTERDB/scripts/core/compare-android-core.sh" pkg/package work/install-android-arm64-v8a arm64-v8a
+
+# the published package with this engine for arm64-v8a, then the example app, laid out as in the repository
+mkdir -p swap app/bridge/out app/react/out
+tar -xzf pkg/pomwik-afterdb-20.3.0.tgz -C swap
+p=swap/package/prebuilds/android/arm64-v8a
+rm -rf "$p/include" "$p/lib"
+cp -R work/install-android-arm64-v8a/include work/install-android-arm64-v8a/lib "$p/"
+tar -czf app/bridge/out/pomwik-afterdb-20.3.0.tgz -C swap package
+npm pack @pomwik/afterdb-react@0.20.1 --pack-destination app/react/out   # sha512 checked as above
+git -C "$AFTERDB" archive HEAD example | tar -x -C app
+(cd app/example && npm install --no-audit --no-fund)
+(cd app/example/android && ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a --console=plain)
+
+# on an Android emulator started with: emulator -avd <name> -no-snapshot -no-window -no-audio -no-boot-anim
+bash "$AFTERDB/scripts/android-selfcheck.sh" app/example/android/app/build/outputs/apk/release/app-release.apk \
+  com.afterdbexample shot.png
+```
+
+The same steps with the unchanged `pomwik-afterdb-20.3.0.tgz` in `bridge/out` of a second copy give the APK with the
+prebuilt engine used for the comparison.
+
 iOS simulator, arm64 (`macos-26`, newest released Xcode 26.x picked by `scripts/ci-xcode.sh newest`):
 
 ```sh
@@ -77,6 +124,69 @@ lipo pkg/package/prebuilds/apple/realm-core.xcframework/ios-arm64_x86_64-simulat
 
 ## Results
 
+### Android on a Mac
+
+Run on 11 November 2026 on an Apple M2 Pro (10 cores), macOS 14.4.1: NDK 27.1.12297006 (clang 18.0.2), CMake 3.22.1
+and ninja 1.10.2 of the Android SDK, `/bin/bash` 3.2.57, JDK 17.0.16, Node 22.19.0, Gradle 9.4.1 (example app
+wrapper). This Mac has the Command Line Tools and no Xcode.
+
+First build, before the macOS change of `build-android-core.sh`: CMake found Apple's flex 2.6.4 and regenerated
+`query_flex.cpp` and `query_flex.hpp` (bison 2.3 was rejected, so `query_bison.cpp` stayed as committed). The libraries
+then had one global symbol that differs from the prebuilt engine, in `librealm-parser.a`:
+
+```
+only in prebuilt:    _Z13yy_scan_bytesPKciPv   yy_scan_bytes(const char*, int, void*)
+only in this build:  _Z13yy_scan_bytesPKcmPv   yy_scan_bytes(const char*, unsigned long, void*)
+```
+
+`git diff` in realm-core showed Apple's flex writing `yy_size_t` where the committed scanner has `int`
+(20 lines added, 18 removed). The script now builds the committed parser on macOS. With that change:
+
+| | arm64-v8a | x86_64 |
+|---|---|---|
+| `build-android-core.sh` run time (configure and build; the clone was already there) | 49 s | 44 s |
+| `librealm.a`, bytes (prebuilt / from source) | 108,430,556 / 108,492,588 | 105,035,084 / 105,097,148 |
+| `librealm-object-store.a` | 44,339,460 / 44,362,524 | 43,099,440 / 43,122,568 |
+| `librealm-parser.a` | 16,370,256 / 16,374,608 | 15,840,714 / 15,845,074 |
+| Archive members (3 libraries) | 138, 28, 4 on both sides, same names | 138, 28, 4, same names |
+| Defined global symbols | 17,082, 6,582, 5,799, no difference | 16,807, 6,441, 5,767, no difference |
+| Undefined global symbols | 347, 719, 535, no difference | 335, 717, 534, no difference |
+| Headers (`include/`) | 204 files, identical | 204 files, identical |
+
+The script printed `Parser sources (src/realm/parser/generated): identical to the ones committed in realm-core` for
+both ABIs, and CMake found the afterdb OpenSSL archive (`found version "3.5.9"`). `librealm.a` calls the same 17
+OpenSSL functions as the prebuilt one. The first build, clone included, took 1 min 5 s.
+
+The example app (React Native 0.88.1, release, arm64-v8a only) was built twice on this Mac, with the same Gradle
+caches: once with the engine built here (1 min 12 s), once with the unchanged published package (1 min 1 s). Gradle
+compiled the binding (`:realm:buildCMakeRelease[arm64-v8a][realm-js-android-binding]`) into `librealm.so` both times.
+
+| `lib/arm64-v8a/librealm.so` | prebuilt engine | engine built here |
+|---|---|---|
+| Size, bytes | 9,114,040 | 9,114,040 |
+| Source paths of this Mac's realm-core build / of upstream's build | 0 / 36 | 36 / 0 |
+| Exported dynamic symbols (`llvm-nm -D --defined-only`) | 7,386 | 7,386, same names |
+| Imported dynamic symbols (`llvm-nm -D --undefined-only`) | 430 | 430, same names |
+| `NEEDED` libraries (`llvm-readelf -d`) | 9 | the same 9 |
+| APK SHA-256 | `ded4ced7…e810bb` | `9af87dfb…53dda8b` |
+
+- The two `librealm.so` files are not byte-identical (`cmp -l`: 417,478 bytes differ). The two app copies were built
+  in different folders, and `libappmodules.so`, which has no engine code, differs too. The difference was not looked
+  at further.
+- All 12 native libraries of the APK with the engine built here are 16 KB aligned (`scripts/check-16kb.mjs`,
+  `zipalign -c -P 16` OK).
+- Android 16 emulator, `Pixel_8` (API 36, `google_apis_playstore` arm64-v8a image revision 7, 4 KB pages, emulator
+  36.1.9.0): `scripts/android-selfcheck.sh` with the APK built here printed `AFTERDB_SELF_CHECK_OK` with
+  `launches: 1` and `launches: 2`. The screen listed the 13 checks, `encryptedReopen` and `encryptedNeedsKey` included.
+- Same emulator, then `adb install -r` of each APK over the previous one and one launch each: prebuilt engine
+  `launches: 3`, engine built here `launches: 4`, prebuilt engine `launches: 5`, `AFTERDB_SELF_CHECK_OK` each time,
+  no crash of the app in logcat. Both APKs are signed with the same key (`apksigner`). As in the CI test below, this
+  covers one plain file. The encrypted file is re-created at each launch.
+- Android 16 emulator with 16 KB pages, `Pixel_8_16k` (API 36, `google_apis_playstore_ps16k` arm64-v8a, `getconf
+  PAGE_SIZE` 16384): the APK built here printed `AFTERDB_SELF_CHECK_OK` with `launches: 1` and `launches: 2`.
+
+### Runs on GitHub Actions
+
 Runs of `.github/workflows/core-from-source.yml` on this branch:
 
 | Run | Commit | Result |
@@ -85,9 +195,11 @@ Runs of `.github/workflows/core-from-source.yml` on this branch:
 | 42726972499 | `5f31b68` | Android green. iOS failed: Xcode 26.6 does not build the unchanged sources |
 | 42728483279 | `67cff69` | All jobs green: Android arm64-v8a and x86_64, emulator run, iOS simulator arm64 with the two patches |
 
-The numbers below are from run 42728483279. Run 42724560193 gave the same sizes and symbol counts.
+The numbers below are from run 42728483279. Run 42724560193 gave the same sizes and symbol counts. These runs used
+`build-android-core.sh` before the macOS change: on Linux its CMake command is the same, and the line about the parser
+sources it prints now did not exist yet.
 
-### Android
+### Android on GitHub Actions
 
 | | arm64-v8a | x86_64 |
 |---|---|---|
@@ -128,7 +240,7 @@ The example app (React Native 0.88.1, release build, one ABI) built with this en
   This covers one plain file (`launches.realm`, one counter). The self-check deletes and re-creates its encrypted
   file at each launch, so no encrypted file was opened by the other engine.
 
-### iOS simulator, arm64
+### iOS simulator, arm64, on GitHub Actions
 
 - Run 42726972499, unchanged sources, Xcode 26.6 (17F113), CMake 4.4.5: build failed with
   `'is_pod' cannot be specialized: Users are not allowed to specialize this standard library entity` in the s2
@@ -167,8 +279,11 @@ Release, `macos-26` runner:
 - iOS on Xcode 26.4: not tried. The patches were only tried with Xcode 26.6.
 - With frameworks (`USE_FRAMEWORKS=static` or `dynamic`): not tried with the engine built here.
 - The Node binaries (`prebuilds/node`): not built from source.
-- The Android build on macOS: not run. The Android builds above ran on `ubuntu-24.04` runners; the Mac was only used
-  for the arm64-v8a emulator run and the `llvm-nm` comparison.
+- Android on a Mac: run on one Apple silicon Mac with macOS 14.4.1 only (arm64-v8a and x86_64 engine, arm64-v8a app).
+  Intel Macs, other macOS versions and a Mac with Homebrew's GNU bison or flex: not tried. The x86_64 engine built on
+  the Mac was compared but not put in an app or run.
+- The macOS change of `build-android-core.sh` has not run on GitHub Actions. On Linux its CMake command is the same.
+- iOS on this Mac: not built, it has no Xcode. The iOS results above come from the `macos-26` runner only.
 - Real devices: not run.
 - realm-core's own test suite: not built or run (`REALM_BUILD_LIB_ONLY=ON`).
 - Byte-identical rebuild of the prebuilt files: no (see sizes).

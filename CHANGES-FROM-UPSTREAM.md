@@ -1,8 +1,8 @@
 # Changes from upstream
 
 `@pomwik/afterdb` and `@pomwik/afterdb-react` repackage the official npm tarballs `realm@20.2.0` and
-`@realm/react@0.20.0` of the Realm® JavaScript SDK (Apache-2.0). The prebuilt realm-core engine is not recompiled or
-changed.
+`@realm/react@0.20.0` of the Realm® JavaScript SDK (Apache-2.0). The compiled libraries of the prebuilt realm-core
+engine are not recompiled or changed; one of its headers and its Android CMake files are (listed below).
 
 Realm® is a trademark of MongoDB, Inc. This project is independent and not affiliated with or endorsed by MongoDB.
 

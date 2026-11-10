@@ -150,20 +150,22 @@ The local machine cannot run Xcode 26 (it runs macOS 14), so iOS is tested only 
 ## Packages tested by CI
 
 Each run of the CI workflow (`ci.yml`) builds `@pomwik/afterdb` and `@pomwik/afterdb-react` from the commit it tests
-(job `packages`) and installs those tarballs in every app. No CI run has installed the tarballs published on npm. Runs 42484520688
-(commit 6c02bbd) and 42716333335 (commit 2901026) built the same two files:
+(job `packages`) and installs those tarballs in every app. The CI runs cited in this file did not install the
+tarballs published on npm. Runs 42484520688 (commit 6c02bbd) and 42716333335 (commit 2901026) built the same two
+files:
 
 | Package | Built by CI | Published on npm |
 |---|---|---|
 | `@pomwik/afterdb` 20.3.0 | sha256 `7262880038e2706e1875491fc43e331eb5f756ffe71e9af351f56839f669b60f`, 183,344,925 bytes | sha256 `5aa89614a214e960df5f47a85da1bfeb6ee8a2d7c40c362a7d2df58f759ca7f6`, 183,327,064 bytes |
 | `@pomwik/afterdb-react` 0.20.1 | sha256 `aa0522c99e89d3efb87e9decd21148dca87388ed8628653cf111df097825e6e5`, 131,367 bytes | the same file |
 
-The npm hashes were computed on files whose sha512 matches the `integrity` printed by `npm view <package> dist`.
-The `@pomwik/afterdb` tarball on npm was built on the maintainer's machine (macOS) on 2026-11-08, with Android
-OpenSSL archives built on that machine too: their `libcrypto.a` records `built on: Fri Nov  6 19:28:03 2026 UTC`,
-and their SHA-256 are in the package's `checksums.txt`. CI uses OpenSSL archives that it built itself (its OpenSSL
-cache was created on 2026-11-06 at 20:33 UTC). OpenSSL writes the build time into `libcrypto.a`, so the two sets of
-archives differ, and the ones on npm have not run in CI.
+The npm hashes were computed on files whose sha512 matches the `integrity` printed by `npm view <package> dist`. The
+`@pomwik/afterdb` tarball on npm was built on the maintainer's machine (macOS) on 2026-11-08, with Android OpenSSL
+archives built on that machine too: their `libcrypto.a` files record build times between 19:28:03 and 19:30:24 UTC on
+2026-11-06 (arm64-v8a: `built on: Fri Nov  6 19:28:03 2026 UTC`), and their SHA-256 are in the package's
+`checksums.txt`. CI uses OpenSSL archives that it built itself (its OpenSSL cache was created on 2026-11-06 at 20:33
+UTC). OpenSSL writes the build time into `libcrypto.a`, so the two sets of archives differ, and the ones on npm have
+not run in CI.
 
 ## Android emulators (GitHub Actions)
 
@@ -246,6 +248,8 @@ minimum version 9.0 in the podspec, `librealm.so` built with AGP's NDK instead o
 - Real devices (an iPhone, an Android phone): only simulators and emulators.
 - iOS for the Expo example; Debug builds of the React Native 0.86.3 and 0.87.1 apps on iOS (their Release builds
   run in CI, see above).
+- iOS with React Native built from source: every iOS job above uses React Native's prebuilt core
+  (`pod install` installs `React-Core-prebuilt`, the default for React Native 0.86.3, 0.87.1 and 0.88.1).
 - The armeabi-v7a and x86 builds at run time: they are built, and their OpenSSL checked, in CI, but the emulators
   are x86_64 in CI and arm64 locally.
 - Opening, on Android or iOS, a file written by an app on realm 20.2.0, plain or encrypted. The cross-reads above

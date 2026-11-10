@@ -61,19 +61,19 @@ Only what has actually been run is marked as passing. See `docs/TEST-RESULTS.md`
 | Android, React Native 0.88.1, new architecture, Hermes: Debug and Release builds, 4 ABIs, OpenSSL 3.5.9 LTS | Pass (local and CI) | local 2026-11-06, CI 2026-11-09 |
 | Android app run (13-check self-check, data kept after a restart): Android 7 (minimum), 11, 16, and 16 with **16 KB pages** | Pass (x86_64 emulators, CI; 16 KB pages also local, arm64 emulator) | CI 2026-11-09, local 2026-11-06 |
 | React Native 0.86.3 and 0.87.1 (bare), Expo SDK 56 (RN 0.85.3), 57 (RN 0.86.3) and 58 (RN 0.88.1) on Android | Pass (local emulator, 16 KB pages; RN 0.86.3 and 0.87.1 rerun with the current packages, `librealm.so` built with the app's NDK; the Expo 58 example also in CI) | local 2026-11-06, CI 2026-11-09 |
-| Release builds with R8 (Expo 58 default, or `minifyEnabled`) | Pass: the package ships its keep rules (local) | 2026-11-06 |
+| Release builds with R8 (Expo 58 default, or `minifyEnabled`) | Pass: the package ships its keep rules (local; the Expo 58 example, R8 on, also in CI) | local 2026-11-06, CI 2026-11-09 |
 | 16 KB alignment of every 64-bit native library, `zipalign -P 16` | Pass (local and CI) | local 2026-11-06, CI 2026-11-09 |
 | No download from static.realm.io during `npm install` or the Android build | Pass (local; OpenSSL origin checked in CI) | local 2026-11-06, CI 2026-11-09 |
 | iOS, React Native 0.88.1, **Xcode 26.4.1** (simulator iOS 26.4), no frameworks: Debug and Release builds, app run (13 checks, data kept after a restart), device build | Pass (CI) | 2026-11-09 |
 | iOS, React Native 0.88.1, Xcode 26.6 (simulator iOS 26.5), no frameworks, static and dynamic frameworks: Debug and Release builds, app run (13 checks, data kept after a restart), device build | Pass (CI) | 2026-11-09 |
 | iOS, new apps from the React Native **0.86.3** and **0.87.1** templates, Xcode 26.6 (simulator iOS 26.5), static and dynamic frameworks: Release build, app run (13 checks, data kept after a restart), device build | Pass (CI) | 2026-11-09 |
-| Real devices (an iPhone, an Android phone); iOS with Expo; Debug builds of the React Native 0.86/0.87 apps on iOS; the armeabi-v7a and x86 builds at run time; opening on Android or iOS a file written by an app on realm 20.2.0; an app built with the two lines installed from npmjs.com | Not tested yet | |
+| Real devices (an iPhone, an Android phone); iOS with Expo; Debug builds of the React Native 0.86/0.87 apps on iOS; iOS with React Native built from source (every iOS job uses React Native's prebuilt core, the default); the armeabi-v7a and x86 builds at run time; opening on Android or iOS a file written by an app on realm 20.2.0; an app built with the two lines installed from npmjs.com | Not tested yet | |
 
 Dates are UTC. The CI dates are those of run
-[42716333335](https://github.com/FirasHmedi/afterdb/actions/runs/42716333335) (commit 2901026, 16 jobs green), and
-every push to `main` runs these jobs again. CI tests the packages it builds from the same commit. The
-`@pomwik/afterdb` tarball on npm was built on the maintainer's machine, and its Android OpenSSL archives differ from
-the ones CI builds (details in `docs/TEST-RESULTS.md`).
+[42716333335](https://github.com/FirasHmedi/afterdb/actions/runs/42716333335) (commit 2901026, 16 jobs green). Later
+pushes to `main` that change the code run these jobs again. CI tests the packages it builds from the same commit.
+The `@pomwik/afterdb` tarball on npm was built on the maintainer's machine, and its Android OpenSSL archives differ
+from the ones CI built and tested (details in `docs/TEST-RESULTS.md`).
 
 ## Install (bare React Native)
 

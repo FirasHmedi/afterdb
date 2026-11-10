@@ -37,11 +37,12 @@ downloads the Node binary from static.realm.io. To avoid it, install with `--ign
 - `prebuilds/android/<abi>/share/cmake/Realm/RealmConfig.cmake`: imports the realm-core targets and acquires OpenSSL.
 
 ## What afterdb changes
-See `CHANGES-FROM-UPSTREAM.md`. In short (`@pomwik/afterdb` 20.3.0): no install script, all binaries and OpenSSL
-bundled, podspec fixed for React Native >= 0.86 and its minimum iOS version, s2 macros that no longer specialize
-`std::is_pod` (the Xcode 26.4 error of realm/realm-js#7115), OpenSSL 3.5.9 LTS on Android with its SHA-256 checked
-by CMake, the app's NDK for `librealm.so`. realm-core is not rebuilt. `@pomwik/afterdb-react` 0.20.1 repackages
-`@realm/react@0.20.0` with `react-native` as an optional peer.
+See `CHANGES-FROM-UPSTREAM.md`. In short (`@pomwik/afterdb` 20.3.0): no install script, Node binaries for 5 platforms
+(not linux-arm or win32-ia32, which upstream also serves) and OpenSSL bundled, podspec fixed for React Native >= 0.86
+and its minimum iOS version, s2 macros that no longer specialize `std::is_pod` (the Xcode 26.4 error of
+realm/realm-js#7115), OpenSSL 3.5.9 LTS on Android with its SHA-256 checked by CMake, the app's NDK for `librealm.so`.
+realm-core is not rebuilt. `@pomwik/afterdb-react` 0.20.1 repackages `@realm/react@0.20.0` with `react-native` as an
+optional peer.
 
 ## Failures reproduced so far
 See `docs/TEST-RESULTS.md`.

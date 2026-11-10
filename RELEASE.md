@@ -88,3 +88,5 @@ Apps installed from a local test registry (Verdaccio, for example) must regenera
 npmjs.com: `package-lock.json` (or `yarn.lock`, `pnpm-lock.yaml`) records the test registry's URL and the integrity
 of the test tarball. Delete the lockfile and `node_modules`, remove any `@pomwik:registry` line from `.npmrc`, and
 reinstall.
+
+<!-- paths filter test (throwaway branch, not for merge) -->

@@ -11,7 +11,8 @@ name: Upgrade
 #
 # ABIs: the example's self-check (default entry, scripts/android-selfcheck.sh) from an APK that holds only
 # armeabi-v7a, on an x86_64 Android 11 image with ARM translation, and only x86, on an x86 Android 11 image.
-# The armeabi-v7a image also runs the upgrade test with armeabi-v7a APKs.
+# The armeabi-v7a image also runs the upgrade test with armeabi-v7a APKs. The armeabi-v7a APKs extract their native
+# libraries (useLegacyPackaging, see the android-build job); the other APKs use the default packaging.
 on:
   pull_request:
     paths:
@@ -187,21 +188,36 @@ jobs:
         run: |
           mkdir -p ../../apks
           cp ../writer.txt ../../apks/writer.txt
+          # armeabi-v7a APKs run on an x86_64 image through ARM translation. With the default packaging (native
+          # libraries kept uncompressed in the APK), React Native's SoLoader looks in base.apk!/lib/x86 in the translated
+          # process and the app stops at start, before any realm code (run 42726695976: SoLoaderDSONotFoundError:
+          # couldn't find DSO to load: libreactnative.so). These APKs extract their libraries (lib/arm) instead.
+          cat > "$RUNNER_TEMP/extract-native-libs.gradle" <<'EOF'
+          allprojects {
+            plugins.withId('com.android.application') {
+              android.packaging.jniLibs.useLegacyPackaging = true
+            }
+          }
+          EOF
+          bt=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
           builds="upgrade:x86_64 upgrade:armeabi-v7a"
           case "$REALM_SOURCE" in afterdb-*) builds="$builds selfcheck:armeabi-v7a selfcheck:x86" ;; esac
           for b in $builds; do
             IFS=: read -r mode abi <<<"$b"
             if [ "$mode" = upgrade ]; then entry=index.upgrade.js; else entry=index.js; fi
-            echo "::group::$mode $abi (ENTRY_FILE=$entry)"
+            init=(); if [ "$abi" = armeabi-v7a ]; then init=(-I "$RUNNER_TEMP/extract-native-libs.gradle"); fi
+            echo "::group::$mode $abi (ENTRY_FILE=$entry ${init[*]})"
             # --no-daemon: each build reads ENTRY_FILE from its own environment
-            if ! ENTRY_FILE=$entry ./gradlew assembleRelease -PreactNativeArchitectures="$abi" --no-daemon --console=plain > "gradle-$mode-$abi.log" 2>&1; then
+            if ! ENTRY_FILE=$entry ./gradlew "${init[@]}" assembleRelease -PreactNativeArchitectures="$abi" --no-daemon --console=plain > "gradle-$mode-$abi.log" 2>&1; then
               grep -E '(error:|^e: |FAILURE|What went wrong|CMake Error|static\.realm\.io)' "gradle-$mode-$abi.log" | head -100 || true
               tail -80 "gradle-$mode-$abi.log"
               exit 1
             fi
             tail -3 "gradle-$mode-$abi.log"
             echo "::endgroup::"
-            cp app/build/outputs/apk/release/app-release.apk "../../apks/$mode-$abi.apk"
+            apk="../../apks/$mode-$abi.apk"
+            cp app/build/outputs/apk/release/app-release.apk "$apk"
+            echo "$apk: $("$bt/aapt2" dump xmltree --file AndroidManifest.xml "$apk" | grep -o 'extractNativeLibs.*' || echo 'extractNativeLibs not set (libraries stay in the APK)')"
           done
           ls -l ../../apks
       - name: OpenSSL linked into librealm.so (3.3.1 from static.realm.io for realm@20.2.0, 3.5.9 for afterdb)

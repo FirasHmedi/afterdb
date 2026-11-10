@@ -2,8 +2,9 @@
 # Shows which librealm.so the running app process has loaded, and fails unless it is lib/<abi>/librealm.so of
 # the given APK. Reads /proc/<pid>/maps as root (emulator google_apis images). Native libraries stored
 # uncompressed in the APK are mapped from base.apk: the mapped offsets are matched to the APK's zip entries.
-# Also prints the process binary, the app's ABI as seen by the package manager, and the ARM translation library
-# when the process runs translated code.
+# Also prints the process binary (app_process32 or app_process64: the ISA the process runs natively), the app's ABI
+# as seen by the package manager, and the native bridge library when the image has one (zygote maps it in every app
+# process, so its presence alone does not mean that the app runs translated code).
 # Usage: scripts/android-loaded-realm.sh <package> <app.apk> <abi>   (the app must be running)
 set -euo pipefail
 PKG="$1"; APK="$2"; ABI="$3"
@@ -24,7 +25,7 @@ exe=$(as_root readlink "/proc/$pid/exe")
 echo "process $pid ($PKG), binary ${exe:-unknown}"
 adb shell dumpsys package "$PKG" | tr -d '\r' | grep -E 'primaryCpuAbi|secondaryCpuAbi' | sed 's/^ */  /' || true
 bridge=$(grep -oE '[^ ]*(libndk_translation|libhoudini)[^ ]*\.so' "$maps.clean" | sort -u | head -3 | tr '\n' ' ' || true)
-echo "  translation library in the process: ${bridge:-none}"
+echo "  native bridge library mapped (in every app process of this image): ${bridge:-none}"
 loaded=$(python3 -I - "$APK" "$maps.clean" <<'PY'
 import sys, zipfile
 apk, maps = sys.argv[1], sys.argv[2]

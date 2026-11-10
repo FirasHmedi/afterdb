@@ -55,8 +55,10 @@ the job.
 
 `bridge/openssl/build-openssl.sh` builds OpenSSL for the 4 Android ABIs with NDK 27.3.13750724 (`NDK_VERSION`). The
 archives are reproducible: the build date comes from `SOURCE_DATE_EPOCH`, tar entries are sorted with a fixed date,
-owner and mode, and gzip stores no name or time. The script checks each archive against its pinned SHA-256: a
-cached archive that does not match is rebuilt, and a new build that does not match stops the script.
+owner and mode, and gzip stores no name or time. For OpenSSL 3.5.9, two CI builds without cache gave the same
+SHA-256 for the 4 archives (runs 42725544229 and 42725580288), and those values are pinned in the script. The script
+checks each archive against its pinned SHA-256: a cached archive that does not match is rebuilt, and a new build that
+does not match stops the script.
 
 To move to another NDK or OpenSSL version: change `NDK_VERSION` or the version table, empty the archive hashes,
 build twice on CI without cache, check that both builds print the same SHA-256, then pin them.

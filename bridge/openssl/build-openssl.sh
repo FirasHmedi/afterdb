@@ -26,8 +26,13 @@ case "$VERSION" in
 esac
 # SHA-256 of each archive built from openssl-$VERSION with NDK $NDK_VERSION (a function: macOS bash 3.2 has no
 # associative arrays). Empty for a version or NDK without pinned values.
+# 3.5.9: two CI builds without cache gave these same values (afterdb runs 42725544229 and 42725580288, 2026-11-10).
 archive_sha256() {
   case "$VERSION-$1" in
+    3.5.9-arm64) echo e2ae019d50265907c54eb366080a2e969156b2249d622bbe7243db01331387a5 ;;
+    3.5.9-arm) echo 0dc545bb0af081eda9dd6c0aea4d5dbd10cbe7599232f8293a61630c197ebc35 ;;
+    3.5.9-x86) echo 438c5293c79a3f963b5d07fee571afe6913f4225594e8036bcea310801377a62 ;;
+    3.5.9-x64) echo 5128bcefc7faef3d4849fdf2d12ade4524bdc9abcb902e2e92743167841a8885 ;;
     *) echo "" ;;
   esac
 }

@@ -2,15 +2,16 @@
 # Builds OpenSSL 3.5 LTS as static libraries for the 4 Android ABIs, packed like the upstream Realm archives
 # (include/, lib/, debug/lib/, include.cmake), so that bridge/build.mjs can ship them instead of OpenSSL 3.3.1.
 #
-# Reproducible: the same OpenSSL source built with the same NDK gives byte-identical archives (the "built on" date of
-# libcrypto comes from SOURCE_DATE_EPOCH; tar entries are sorted, dated SOURCE_DATE_EPOCH, owned by 0:0 with fixed
-# modes; gzip stores no name or time). The SHA-256 of the 4 archives built with NDK $NDK_VERSION are pinned below:
-# a cached archive is reused only if it matches, and a new build must match too.
+# Built to be reproducible: the "built on" date of libcrypto comes from SOURCE_DATE_EPOCH; tar entries are sorted,
+# dated SOURCE_DATE_EPOCH, owned by 0:0 with fixed modes; gzip stores no name or time. On GitHub's ubuntu-24.04
+# runners with NDK $NDK_VERSION, separate builds without cache gave byte-identical archives; a build on macOS or
+# another Linux is not tested yet to give the same bytes. The SHA-256 of the 4 archives from those CI builds are
+# pinned below: a cached archive is reused only if it matches, and a new build must match too.
 #
 # Usage: bridge/openssl/build-openssl.sh [version]
 #   Needs Android NDK $NDK_VERSION: ANDROID_NDK_ROOT, or $ANDROID_HOME/ndk/$NDK_VERSION
 #   (sdkmanager --install "ndk;$NDK_VERSION"). With another NDK, set AFTERDB_OPENSSL_ANY_NDK=1: the archives are
-#   built, but they will not match the pinned SHA-256 and must not be published.
+#   built but not checked against the pinned SHA-256, and must not be published.
 # Output: bridge/.cache/openssl/openssl-<version>-<arch>-android.tar.gz
 set -euo pipefail
 
@@ -157,7 +158,8 @@ for pair in arm64-v8a:arm64:android-arm64 armeabi-v7a:arm:android-arm x86:x86:an
   GOT="$(sha256 "$OUT")"
   if [ -n "$WANT" ] && [ "$GOT" != "$WANT" ]; then
     mv "$OUT" "$OUT.mismatch"
-    echo "error: $OUT has SHA-256 $GOT, the pinned value for NDK $NDK_VERSION is $WANT (kept as $OUT.mismatch)"
+    echo "error: $OUT has SHA-256 $GOT, the pinned value for NDK $NDK_VERSION is $WANT (kept as $OUT.mismatch)."
+    echo "The pinned values come from builds on GitHub's ubuntu-24.04 runners."
     exit 1
   fi
   [ -n "$WANT" ] && echo "built, SHA-256 matches the pinned value: $OUT" || echo "built (no pinned SHA-256 to compare): $OUT"

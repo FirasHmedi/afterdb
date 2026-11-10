@@ -6,14 +6,30 @@ name: CI
 # The packages are built once (job packages) and the exact same tarballs are used by the android, expo-android, ios
 # and ios-rn jobs.
 # The repository is public: iOS (macOS runners) and the emulator runs also run on every push to main.
-# A push or pull request that only changes Markdown files or docs/ starts nothing: start a run by hand when a release
-# needs a CI run on such a commit (publish.yml checks that CI succeeded on the commit it stages).
+# A push or pull request that only changes Markdown files or docs/ starts nothing, except the 4 Markdown files that
+# ship in the packages and that npm test checks (CHANGES-FROM-UPSTREAM.md, THIRD-PARTY-NOTICES.md and the 2
+# PACKAGE_README.md). Start a run by hand when a release needs a CI run on such a commit (publish.yml checks that CI
+# succeeded on the commit it stages). The two path lists below are the same.
 on:
   push:
     branches: [main]
-    paths-ignore: ['**/*.md', 'docs/**']
+    paths:
+      - '**'
+      - '!**/*.md'
+      - '!docs/**'
+      - 'CHANGES-FROM-UPSTREAM.md'
+      - 'THIRD-PARTY-NOTICES.md'
+      - 'bridge/PACKAGE_README.md'
+      - 'react/PACKAGE_README.md'
   pull_request:
-    paths-ignore: ['**/*.md', 'docs/**']
+    paths:
+      - '**'
+      - '!**/*.md'
+      - '!docs/**'
+      - 'CHANGES-FROM-UPSTREAM.md'
+      - 'THIRD-PARTY-NOTICES.md'
+      - 'bridge/PACKAGE_README.md'
+      - 'react/PACKAGE_README.md'
   workflow_dispatch:
     inputs:
       ios:

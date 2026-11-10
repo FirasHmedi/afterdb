@@ -6,9 +6,10 @@ name: Publish
 # staged version with 2FA (npmjs.com, Staged Packages, or `npm stage approve <id>`) before it goes live.
 # Runs when a GitHub release is published, or by hand (Actions tab) with an optional dry run. A package whose
 # version is already on npm is skipped, so re-running is safe.
-# Before anything is staged: the CI workflow must have succeeded on the same commit, OpenSSL is rebuilt from source
-# without any cache (and must match the SHA-256 pinned in bridge/openssl/build-openssl.sh), and the SHA-256 of the
-# 4 OpenSSL archives and of both tarballs are printed in the log and in the run summary.
+# Before anything is staged: the CI workflow must have succeeded on the same commit with every job run (a push run,
+# or a manual run with ios and emulators checked), OpenSSL is rebuilt from source without any cache (and must match
+# the SHA-256 pinned in bridge/openssl/build-openssl.sh), and the SHA-256 of the 4 OpenSSL archives and of both
+# tarballs are printed in the log and in the run summary.
 on:
   release:
     types: [published]
@@ -41,19 +42,34 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       # A push or manual CI run checks out this exact commit (a pull request run tests a merge commit instead).
+      # Every job of that run must have run and passed: a manual run with ios or emulators unchecked skips jobs and
+      # does not count.
       # A real run stops here when there is none; a dry run only warns, so that the rest can still be tried.
-      - name: CI succeeded on this commit
+      - name: CI succeeded on this commit, every job run
         env:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ github.sha }}
         run: |
           runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$SHA&status=success&per_page=100" \
-            --jq '.workflow_runs[] | select(.event == "push" or .event == "workflow_dispatch") | "\(.html_url) (\(.event), \(.head_branch))"')
-          if [ -n "$runs" ]; then
-            echo "CI succeeded on $SHA:"; echo "$runs"
+            --jq '.workflow_runs[] | select(.event == "push" or .event == "workflow_dispatch") | "\(.id) \(.event) \(.head_branch)"')
+          found=""
+          while read -r id event branch; do
+            [ -n "$id" ] || continue
+            url="https://github.com/$GITHUB_REPOSITORY/actions/runs/$id ($event, $branch)"
+            jobs=$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$id/jobs?per_page=100" \
+              --jq '.jobs[] | "\(.conclusion) \(.name)"')
+            if grep -qx 'success packages' <<<"$jobs" && ! grep -qv '^success ' <<<"$jobs"; then
+              found="$found$url"$'\n'
+            else
+              echo "Not counted, a job did not run or did not pass: $url"
+              grep -v '^success ' <<<"$jobs" || true
+            fi
+          done <<<"$runs"
+          if [ -n "$found" ]; then
+            echo "CI succeeded on $SHA, every job run:"; printf '%s' "$found"
             exit 0
           fi
-          msg="no successful CI run (push or manual) on $SHA: run CI on this commit (Actions, CI, Run workflow) and wait for it to pass"
+          msg="no CI run (push, or manual with ios and emulators checked) on $SHA in which every job ran and passed: run CI on this commit (Actions, CI, Run workflow) and wait for it to pass"
           if [ "$DRY_RUN" = "true" ]; then
             echo "::warning::$msg. Dry run: continued, a real run stops here."
           else

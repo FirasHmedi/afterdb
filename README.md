@@ -22,7 +22,7 @@ building while their teams decide whether to stay or move.
 
 | Folder | What | Status |
 |---|---|---|
-| `bridge/` | `@pomwik/afterdb`: the official `realm@20.2.0` package, verified, with build fixes (no engine change) | Built and tested |
+| `bridge/` | `@pomwik/afterdb`: the official `realm@20.2.0` package, verified, with build fixes (the compiled engine is not changed) | Built and tested |
 | `react/` | `@pomwik/afterdb-react`: `@realm/react@0.20.0` with `react-native` as an optional peer | Built and tested |
 | `converter/` | `afterdb-convert`: `.realm` → SQLite with per-object verification, and an RQL ↔ SQL differential test | Tested on desktop (Node) |
 | `example/` | React Native 0.88.1 app that installs both packages under the names `realm` and `@realm/react` (local `file:` tarballs, as the npm alias would) and runs a self-check | See the matrix |
@@ -64,16 +64,19 @@ Only what has actually been run is marked as passing. See `docs/TEST-RESULTS.md`
 | Release builds with R8 (Expo 58 default, or `minifyEnabled`) | Pass: the package ships its keep rules (local; the Expo 58 example, R8 on, also in CI) | local 2026-11-06, CI 2026-11-09 |
 | 16 KB alignment of every 64-bit native library, `zipalign -P 16` | Pass (local and CI) | local 2026-11-06, CI 2026-11-09 |
 | No download from static.realm.io during `npm install` or the Android build | Pass (local; OpenSSL origin checked in CI) | local 2026-11-06, CI 2026-11-09 |
-| iOS, React Native 0.88.1, **Xcode 26.4.1** (simulator iOS 26.4), no frameworks: Debug and Release builds, app run (13 checks, data kept after a restart), device build | Pass (CI) | 2026-11-09 |
-| iOS, React Native 0.88.1, Xcode 26.6 (simulator iOS 26.5), no frameworks, static and dynamic frameworks: Debug and Release builds, app run (13 checks, data kept after a restart), device build | Pass (CI) | 2026-11-09 |
+| iOS, React Native 0.88.1, **Xcode 26.4.1** (simulator iOS 26.4), no frameworks: Debug and Release builds, app run of the Release build (13 checks, data kept after a restart), device build | Pass (CI) | 2026-11-09 |
+| iOS, React Native 0.88.1, Xcode 26.6 (simulator iOS 26.5), no frameworks, static and dynamic frameworks: Debug and Release builds, app run of the Release build (13 checks, data kept after a restart), device build | Pass (CI) | 2026-11-09 |
 | iOS, new apps from the React Native **0.86.3** and **0.87.1** templates, Xcode 26.6 (simulator iOS 26.5), static and dynamic frameworks: Release build, app run (13 checks, data kept after a restart), device build | Pass (CI) | 2026-11-09 |
-| Real devices (an iPhone, an Android phone); iOS with Expo; Debug builds of the React Native 0.86/0.87 apps on iOS; iOS with React Native built from source (every iOS job uses React Native's prebuilt core, the default); the armeabi-v7a and x86 builds at run time; opening on Android or iOS a file written by an app on realm 20.2.0; an app built with the two lines installed from npmjs.com | Not tested yet | |
+| The two lines of "Install" (below), from npmjs.com with npm, in a new app from the React Native 0.88 template (0.88.1): Android Release build (4 ABIs) and app run on Android 16 (x86_64 emulator); iOS Release build without frameworks (Xcode 26.6) and app run on the simulator | Pass (CI, [run 42732264020](https://github.com/FirasHmedi/afterdb/actions/runs/42732264020), branch `upgrade-tests`) | 2026-11-10 |
+| Real devices (an iPhone, an Android phone); running a Debug build (CI only compiles them); iOS with Expo; the React Native 0.86/0.87 apps on iOS without frameworks or in Debug; iOS with React Native built from source (every iOS job uses React Native's prebuilt core, the default); the armeabi-v7a and x86 builds at run time; opening on Android or iOS a file written by an app on realm 20.2.0; installing from npmjs.com with yarn or pnpm, or in an Expo app | Not tested yet | |
 
-Dates are UTC. The CI dates are those of run
+Dates are UTC. Unless a row names another run, the CI dates are those of run
 [42716333335](https://github.com/FirasHmedi/afterdb/actions/runs/42716333335) (commit 2901026, 16 jobs green). Later
-pushes to `main` that change the code run these jobs again. CI tests the packages it builds from the same commit.
-The `@pomwik/afterdb` tarball on npm was built on the maintainer's machine, and its Android OpenSSL archives differ
-from the ones CI built and tested (details in `docs/TEST-RESULTS.md`).
+pushes to `main` that change the code run these jobs again. These jobs test the packages CI builds from the same
+commit. The `@pomwik/afterdb` tarball on npm was built on the maintainer's machine, and its Android OpenSSL archives
+differ from the ones CI builds. The npm tarballs themselves ran in CI in run 42732264020 (the row above; on Android,
+its x86_64 build). The upgrade tests being written on the same branch also install them; their runs are not green
+yet, and they are not counted here. Details in `docs/TEST-RESULTS.md`.
 
 ## Install (bare React Native)
 
@@ -168,6 +171,7 @@ Security problems: see `SECURITY.md`.
 
 Diagnostic of your Realm app, migration of your data to SQLite at a fixed price, or fixes after each React Native,
 Expo or Xcode release, under a support agreement: [pomwik.com/realm](https://pomwik.com/realm/) or hello@pomwik.com.
+Breaks inside the prebuilt realm-core engine are excluded, as in the [Maintenance policy](#maintenance-policy).
 
 ## Licence
 

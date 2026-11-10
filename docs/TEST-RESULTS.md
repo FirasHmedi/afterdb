@@ -131,9 +131,9 @@ The local machine cannot run Xcode 26 (it runs macOS 14), so iOS is tested only 
 
 - Run 42484520688 (2026-11-08, push of commit 6c02bbd to `main`; packages built by CI from that commit, see
   "Packages tested by CI" below): all 12 jobs green: iOS frameworks none with Xcode 26.4.1, and none, static and
-  dynamic with Xcode 26.6 (Debug and Release simulator builds, app run twice with the 13-check self-check, device
-  build); Android Debug and Release builds, the example on Android 7, 11, 16 and 16 with 16 KB pages; the Expo SDK
-  58 example built and run.
+  dynamic with Xcode 26.6 (Debug and Release simulator builds, the Release build run twice with the 13-check
+  self-check, device build); Android Debug and Release builds, the example on Android 7, 11, 16 and 16 with 16 KB
+  pages; the Expo SDK 58 example built and run.
 - Run 42712609349 (2026-11-09, branch `ios-rn-matrix`, commit cd4a075, now in `main`): a new app from the React
   Native 0.86.3 template and one from the 0.87.1 template (`@react-native-community/cli init --version`), with the
   example's `App.tsx` and `schema.ts` (the 13-check self-check) and the packages installed under the names `realm`
@@ -145,14 +145,15 @@ The local machine cannot run Xcode 26 (it runs macOS 14), so iOS is tested only 
 - Run 42716333335 (2026-11-09, push of commit 2901026 to `main`): all 16 jobs green: the jobs of run 42484520688
   (example on iOS, Android and the 4 emulators, Expo SDK 58), and the React Native 0.86.3 and 0.87.1 apps with
   dynamic and with static frameworks: the same steps as in run 42712609349, and both launches show
-  `AFTERDB_SELF_CHECK_OK` with `launches: 1` then `launches: 2`. Not run for these two apps: Debug builds.
+  `AFTERDB_SELF_CHECK_OK` with `launches: 1` then `launches: 2`. Not run for these two apps: Debug builds, and
+  builds without frameworks.
 
 ## Packages tested by CI
 
 Each run of the CI workflow (`ci.yml`) builds `@pomwik/afterdb` and `@pomwik/afterdb-react` from the commit it tests
-(job `packages`) and installs those tarballs in every app. The CI runs cited in this file did not install the
-tarballs published on npm. Runs 42484520688 (commit 6c02bbd) and 42716333335 (commit 2901026) built the same two
-files:
+(job `packages`) and installs those tarballs in every app. The `ci.yml` runs cited in this file did not install the
+tarballs published on npm (run 42732264020, in the next section, did). Runs 42484520688 (commit 6c02bbd) and
+42716333335 (commit 2901026) built the same two files:
 
 | Package | Built by CI | Published on npm |
 |---|---|---|
@@ -164,8 +165,27 @@ The npm hashes were computed on files whose sha512 matches the `integrity` print
 archives built on that machine too: their `libcrypto.a` files record build times between 19:28:03 and 19:30:24 UTC on
 2026-11-06 (arm64-v8a: `built on: Fri Nov  6 19:28:03 2026 UTC`), and their SHA-256 are in the package's
 `checksums.txt`. CI uses OpenSSL archives that it built itself (its OpenSSL cache was created on 2026-11-06 at 20:33
-UTC). OpenSSL writes the build time into `libcrypto.a`, so the two sets of archives differ, and the ones on npm have
-not run in CI.
+UTC). OpenSSL writes the build time into `libcrypto.a`, so the two sets of archives differ. The `ci.yml` runs above
+did not run the ones on npm.
+
+## Packages installed from npmjs.com (GitHub Actions)
+
+Run 42732264020 (2026-11-10, workflow `registry.yml`, pull request run on the branch `upgrade-tests`, commit
+6591183): a new app from the React Native 0.88 template (`react-native` 0.88.1) with the example's `App.tsx` and
+`schema.ts`, and the two README lines `"realm": "npm:@pomwik/afterdb@20.3.0"` and
+`"@realm/react": "npm:@pomwik/afterdb-react@0.20.1"`, installed with npm. The log shows both packages coming from
+registry.npmjs.org with the `integrity` of the published tarballs, and the four OpenSSL archives in
+`node_modules/realm` with the SHA-256 listed in the npm tarball's `checksums.txt` (`aae67af4…` for arm64-v8a).
+- Android: Release build of the template's 4 ABIs, OpenSSL 3.5.9 in each `librealm.so`, 24/24 64-bit libraries
+  16 KB aligned; on an Android 16 emulator (x86_64), both launches show `AFTERDB_SELF_CHECK_OK`, with
+  `launches: 1` then `launches: 2`. Only the x86_64 build ran.
+- iOS: Xcode 26.6, no frameworks, `pod install` installs `RealmJS (20.3.0)`; Release build for an iPhone 17 Pro
+  simulator (iOS 26.5); the app launched twice, `launch 1: {"text":"AFTERDB_SELF_CHECK_OK","launches":"launches: 1"}`,
+  `launch 2: … "launches: 2"`.
+
+The workflow `upgrade.yml` on the same branch also installs the npm tarballs (runs 42729502999 and 42732264289). It
+is still being written and its runs are not green (its armeabi-v7a jobs fail), so its results are not counted in this
+file yet.
 
 ## Android emulators (GitHub Actions)
 
@@ -238,25 +258,28 @@ JavaScript layer and the packaging, not the iOS or Android changes.
 ## Package hygiene audit
 
 An audit of both tarballs against upstream found the packaging clean (every changed file documented, no install
-script, no local path or secret in anything we built, LICENSE and NOTICE present, engine unchanged except the
-documented header fix) and these problems, all fixed: upstream author (MongoDB) and bug URL left in our
-package.json files, a shipped README claiming more than was proven, the local account name in the OpenSSL archives
-(now 0:0), no checksum check of the bundled OpenSSL during the Android build (now SHA-256 checked by CMake), iOS
-minimum version 9.0 in the podspec, `librealm.so` built with AGP's NDK instead of the app's.
+script, no local path or secret in anything we built, LICENSE and NOTICE present, compiled engine unchanged, its
+changed header and Android CMake files documented) and these problems, all fixed: upstream author (MongoDB) and bug
+URL left in our package.json files, a shipped README claiming more than was proven, the local account name in the
+OpenSSL archives (now 0:0), no checksum check of the bundled OpenSSL during the Android build (now SHA-256 checked by
+CMake), iOS minimum version 9.0 in the podspec, `librealm.so` built with AGP's NDK instead of the app's.
 
 ### Not tested yet
 - Real devices (an iPhone, an Android phone): only simulators and emulators.
-- iOS for the Expo example; Debug builds of the React Native 0.86.3 and 0.87.1 apps on iOS (their Release builds
-  run in CI, see above).
-- iOS with React Native built from source: every iOS job above uses React Native's prebuilt core
-  (`pod install` installs `React-Core-prebuilt`, the default for React Native 0.86.3, 0.87.1 and 0.88.1).
+- Running a Debug build: CI compiles the example's Debug builds on iOS and Android but runs only the Release builds
+  (a Debug build loads its JavaScript from Metro).
+- iOS for the Expo example; the React Native 0.86.3 and 0.87.1 apps on iOS without frameworks, and their Debug
+  builds (their Release builds with static and dynamic frameworks run in CI, see above).
+- iOS with React Native built from source: in runs 42484520688, 42712609349, 42716333335 and 42732264020, every iOS
+  job's `pod install` installs `React-Core-prebuilt`, React Native's prebuilt core (the default for React Native
+  0.86.3, 0.87.1 and 0.88.1; nothing in these jobs asks for it).
 - The armeabi-v7a and x86 builds at run time: they are built, and their OpenSSL checked, in CI, but the emulators
   are x86_64 in CI and arm64 locally.
 - Opening, on Android or iOS, a file written by an app on realm 20.2.0, plain or encrypted. The cross-reads above
   ran in Node only. On Android the engine encrypts files with OpenSSL (its `librealm.a` calls `EVP_aes_256_cbc` and
   `HMAC`), which is 3.5.9 in afterdb and 3.3.1 upstream.
-- A React Native app built with the two alias lines installed from npmjs.com: CI installs `file:` tarballs, and the
-  alias installs above used a local registry.
-- The `@pomwik/afterdb` tarball published on npm, in CI (see "Packages tested by CI").
+- Installing from npmjs.com with yarn or pnpm, or in an Expo app: run 42732264020 used npm in a bare app, and the
+  yarn and pnpm installs above used a local registry.
+- The npm tarball's arm64-v8a, armeabi-v7a and x86 builds at run time (run 42732264020 ran its x86_64 build).
 - The Node binaries for Windows, macOS x64 and Linux arm64 are byte-identical to upstream but were not executed
   (macOS arm64 runs locally, Linux x64 in CI with `npm test`).

@@ -40,3 +40,5 @@ Licence: Apache-2.0 (see LICENSE and NOTICE). The prebuilt realm-core engine con
 licences: see THIRD-PARTY-NOTICES.md.
 
 Modified by Pomwik (Firas Hmedi), 2026: this file replaces the upstream README (see CHANGES-FROM-UPSTREAM.md).
+
+<!-- paths filter test (throwaway branch, not for merge) -->

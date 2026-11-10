@@ -16,7 +16,7 @@ mkdir -p "$OUT"
 sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
 bt=$(ls -d "$sdk"/build-tools/* | sort -V | tail -1)
 pkgname() { "$bt/aapt2" dump badging "$1" | sed -n "s/^package: name='\([^']*\)'.*/\1/p"; }
-cert() { "$bt/apksigner" verify --print-certs "$1" | sed -n 's/.*certificate SHA-256 digest: //p' | head -1; }
+cert() { "$bt/apksigner" verify --print-certs "$1" | awk -F'SHA-256 digest: ' '!f && NF > 1 { print $2; f = 1 }'; }
 
 # same application id and same signing certificate: otherwise install -r fails or installs another app
 for apk in "$A" "$B"; do
@@ -30,7 +30,8 @@ echo "B: $B ($WB)"
 echo "both: package $PKG, signing certificate SHA-256 $ca"
 echo "device: Android $(adb shell getprop ro.build.version.release | tr -d '\r') (API $(adb shell getprop ro.build.version.sdk | tr -d '\r')), ABIs $(adb shell getprop ro.product.cpu.abilist | tr -d '\r')"
 
-installed() { adb shell dumpsys package "$PKG" | tr -d '\r' | grep -m1 "$1" | sed 's/^ *//'; }
+# first line of dumpsys package that contains $1 (awk reads all input: no SIGPIPE under pipefail)
+installed() { adb shell dumpsys package "$PKG" | tr -d '\r' | awk -v k="$1" '!f && index($0, k) { sub(/^ */, ""); print; f = 1 }'; }
 
 stage() { # <n> <expected history> <apk>
   local n="$1" apk="$3" ui="" ok=""

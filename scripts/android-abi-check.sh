@@ -19,7 +19,7 @@ echo "ABIs in the APK: $dirs"
 
 bash "$HERE/android-selfcheck.sh" "$APK" "$PKG" "$OUT/selfcheck-$ABI.png"
 
-primary=$(adb shell dumpsys package "$PKG" | tr -d '\r' | sed -n 's/.*primaryCpuAbi=\([^ ]*\).*/\1/p' | head -1)
+primary=$(adb shell dumpsys package "$PKG" | tr -d '\r' | awk '!f && match($0, /primaryCpuAbi=[^ ]+/) { print substr($0, RSTART + 14, RLENGTH - 14); f = 1 }')
 echo "primaryCpuAbi: $primary"
 [ "$primary" = "$ABI" ] || { echo "::error::primaryCpuAbi is $primary, expected $ABI"; exit 1; }
 

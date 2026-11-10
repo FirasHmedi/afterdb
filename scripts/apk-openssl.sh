@@ -8,7 +8,7 @@ APK="$1"; WANT="$2"
 libs=$(unzip -Z1 "$APK" 'lib/*/librealm.so')
 [ -n "$libs" ] || { echo "::error::no librealm.so in $APK"; exit 1; }
 for so in $libs; do
-  found=$(unzip -p "$APK" "$so" | strings -a -n 5 | grep -xE '3\.[0-9]+\.[0-9]+' | sort -u | tr '\n' ' ')
+  found=$(unzip -p "$APK" "$so" | strings -a -n 5 | { grep -xE '3\.[0-9]+\.[0-9]+' || true; } | sort -u | tr '\n' ' ')
   echo "$so: OpenSSL version strings: ${found:-none}"
   [ "$found" = "$WANT " ] || { echo "::error::$so: expected OpenSSL $WANT only, found: ${found:-none}"; exit 1; }
 done

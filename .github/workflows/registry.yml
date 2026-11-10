@@ -1,0 +1,190 @@
+name: Registry
+
+# What a user installs: a new app from the React Native 0.88 CLI template (newest 0.88.x), with the two npm alias
+# lines of the README, so realm and @realm/react come from npmjs.com, not from this repository's build. The
+# example's App.tsx and schema.ts, a release build, and the self-check on an Android 16 emulator and an iOS
+# simulator. Weekly, by hand, and on pull requests that change this file.
+on:
+  schedule:
+    - cron: '23 5 * * 1'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/registry.yml
+      - scripts/registry-new-app.sh
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: registry-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # the two lines of the README
+  REALM_ALIAS: npm:@pomwik/afterdb@20.3.0
+  REACT_ALIAS: npm:@pomwik/afterdb-react@0.20.1
+
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    outputs:
+      app-id: ${{ steps.app.outputs.app-id }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: New app from the React Native 0.88 template, with the example's App.tsx and schema.ts
+        id: app
+        run: bash scripts/registry-new-app.sh RnApp
+      - name: Installed packages (from registry.npmjs.org, with the registry's integrity)
+        working-directory: RnApp
+        run: bash ../scripts/upgrade-installed.sh afterdb-npm
+      - name: Typecheck the app
+        working-directory: RnApp
+        run: npx tsc --noEmit
+      - name: Release build (the template's 4 ABIs)
+        working-directory: RnApp/android
+        run: |
+          # the template's Gradle wrapper waits 10 s for services.gradle.org; give it 60 s
+          sed -i 's/^networkTimeout=10000$/networkTimeout=60000/' gradle/wrapper/gradle-wrapper.properties
+          if ! ./gradlew assembleRelease --console=plain > gradle-release.log 2>&1; then
+            grep -E '(error:|^e: |FAILURE|What went wrong|CMake Error)' gradle-release.log | head -100 || true
+            tail -80 gradle-release.log
+            exit 1
+          fi
+          tail -3 gradle-release.log
+      - name: OpenSSL from the npm package (3.5.9 in every librealm.so, archives with their SHA-256)
+        run: |
+          apk=RnApp/android/app/build/outputs/apk/release/app-release.apk
+          bash scripts/apk-openssl.sh "$apk" 3.5.9
+          (cd RnApp/node_modules/realm && sha256sum prebuilds/android/*/deps/openssl-*.tar.gz)
+      - name: 16 KB page alignment of every native library
+        run: node scripts/check-16kb.mjs RnApp/android/app/build/outputs/apk/release/app-release.apk
+      - uses: actions/upload-artifact@v7
+        with:
+          name: registry-release-apk
+          path: RnApp/android/app/build/outputs/apk/release/app-release.apk
+          retention-days: 7
+
+  android-run:
+    needs: android
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    env:
+      APP_ID: ${{ needs.android.outputs.app-id }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: registry-release-apk
+      - name: Test script
+        run: |
+          cat > emulator-test.sh <<'EOF'
+          set -euo pipefail
+          # the emulator has booted: a failure from here on is never retried
+          touch emulator-started
+          bash scripts/android-selfcheck.sh app-release.apk "$APP_ID" registry-android-36.png
+          EOF
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Self-check on the emulator (Android 16)
+        id: emu1
+        continue-on-error: true
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          cores: 4
+          ram-size: 4096M
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
+          script: bash emulator-test.sh
+      # one retry, only if the emulator never booted (the test script did not start)
+      - name: Self-check on the emulator (retry, the emulator did not boot)
+        if: steps.emu1.outcome == 'failure' && hashFiles('emulator-started') == ''
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          cores: 4
+          ram-size: 4096M
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
+          script: bash emulator-test.sh
+      - name: Result
+        if: steps.emu1.outcome == 'failure' && hashFiles('emulator-started') != ''
+        run: echo "::error::the self-check failed on the emulator (not retried)"; exit 1
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: registry-android-run
+          path: registry-android-*.png
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # newest released Xcode, no frameworks
+  ios:
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Xcode newest (released, not beta)
+        run: bash scripts/ci-xcode.sh newest
+      - name: New app from the React Native 0.88 template, with the example's App.tsx and schema.ts
+        run: bash scripts/registry-new-app.sh RnApp
+      - name: Installed packages (from registry.npmjs.org, with the registry's integrity)
+        working-directory: RnApp
+        run: bash ../scripts/upgrade-installed.sh afterdb-npm
+      - name: pod install
+        working-directory: RnApp/ios
+        run: |
+          bundle install && bundle exec pod install
+          grep -E '^  - RealmJS' Podfile.lock
+      - name: Boot an iPhone simulator (newest iOS runtime of the selected Xcode)
+        run: bash scripts/ci-boot-simulator.sh
+      - name: Simulator build (Release)
+        working-directory: RnApp/ios
+        run: |
+          if ! xcodebuild -workspace RnApp.xcworkspace -scheme RnApp -configuration Release \
+              -destination "id=$SIM_UDID" -derivedDataPath build ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO build \
+              > xcodebuild-sim.log 2>&1; then
+            grep -E '(error|fatal error):|BUILD FAILED' xcodebuild-sim.log | head -100 || true
+            tail -80 xcodebuild-sim.log
+            exit 1
+          fi
+          tail -3 xcodebuild-sim.log
+      - name: Self-check on the simulator (2 launches, result read from the app's realm file)
+        working-directory: RnApp
+        run: |
+          app=ios/build/Build/Products/Release-iphonesimulator/RnApp.app
+          id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist")
+          echo "bundle id: $id"
+          bash ../scripts/ios-selfcheck.sh "$app" "$id" "$GITHUB_WORKSPACE/registry-ios.png"
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: registry-ios
+          path: |
+            registry-ios.png
+            RnApp/ios/xcodebuild-*.log
+          if-no-files-found: ignore
+          retention-days: 7

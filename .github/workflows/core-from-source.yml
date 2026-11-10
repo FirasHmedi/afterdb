@@ -1,8 +1,9 @@
 name: Core from source
 
-# Builds the realm-core engine (v20.1.0, the one inside realm@20.2.0 and @pomwik/afterdb 20.3.0) from source for
-# Android with scripts/core/build-android-core.sh, compares it with the prebuilt engine of the published package,
-# puts it in that package, builds the example app with it, and runs the self-check on an Android 16 emulator (x86_64).
+# Builds the realm-core engine (v20.1.0, the one inside realm@20.2.0 and @pomwik/afterdb 20.3.0) from source with the
+# scripts in scripts/core, compares it with the prebuilt engine of the published package, puts it in that package,
+# builds the example app with it and runs the self-check: Android arm64-v8a and x86_64 (x86_64 run on an Android 16
+# emulator), iOS simulator arm64 (run on an iPhone simulator).
 # See docs/CORE-FROM-SOURCE.md. Runs on pull requests that change these files, and by hand.
 on:
   pull_request:
@@ -59,7 +60,7 @@ jobs:
           mkdir -p pkg react/out
           npm pack "@pomwik/afterdb@$AFTERDB" --pack-destination pkg --silent
           npm pack "@pomwik/afterdb-react@$AFTERDB_REACT" --pack-destination react/out --silent
-          check() { local got="sha512-$(openssl dgst -sha512 -binary "$1" | base64 -w0)"; [ "$got" = "$2" ] || { echo "::error::$1: $got, expected $2"; exit 1; }; echo "$1: $got"; }
+          check() { local got="sha512-$(openssl dgst -sha512 -binary "$1" | base64 | tr -d '\n')"; [ "$got" = "$2" ] || { echo "::error::$1: $got, expected $2"; exit 1; }; echo "$1: $got"; }
           check "pkg/pomwik-afterdb-$AFTERDB.tgz" "$AFTERDB_INTEGRITY"
           check "react/out/pomwik-afterdb-react-$AFTERDB_REACT.tgz" "$AFTERDB_REACT_INTEGRITY"
           tar -xzf "pkg/pomwik-afterdb-$AFTERDB.tgz" -C pkg
@@ -160,5 +161,99 @@ jobs:
         with:
           name: core-from-source-run
           path: core-from-source-*.png
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # iOS simulator, arm64 slice: built from source, swapped into the prebuilt xcframework (lipo -replace arm64, the
+  # x86_64 slice stays prebuilt), example app built without frameworks and run on an iPhone simulator like ci.yml
+  ios-sim:
+    runs-on: macos-26
+    timeout-minutes: 90
+    name: ios (simulator arm64)
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Xcode newest (released, not beta)
+        run: bash scripts/ci-xcode.sh newest
+      - name: The published packages from npmjs.com (integrity checked)
+        run: |
+          mkdir -p pkg react/out
+          npm pack "@pomwik/afterdb@$AFTERDB" --pack-destination pkg --silent
+          npm pack "@pomwik/afterdb-react@$AFTERDB_REACT" --pack-destination react/out --silent
+          check() { local got="sha512-$(openssl dgst -sha512 -binary "$1" | base64 | tr -d '\n')"; [ "$got" = "$2" ] || { echo "::error::$1: $got, expected $2"; exit 1; }; echo "$1: $got"; }
+          check "pkg/pomwik-afterdb-$AFTERDB.tgz" "$AFTERDB_INTEGRITY"
+          check "react/out/pomwik-afterdb-react-$AFTERDB_REACT.tgz" "$AFTERDB_REACT_INTEGRITY"
+          tar -xzf "pkg/pomwik-afterdb-$AFTERDB.tgz" -C pkg
+      # realm-core's sources unchanged first; with afterdb's std::is_pod change (realm/realm-js#7115) only if that fails
+      - name: Build realm-core from source (unchanged sources)
+        id: plain
+        continue-on-error: true
+        run: time bash scripts/core/build-ios-sim-core.sh "$RUNNER_TEMP/core" arm64
+      - name: Build realm-core from source (with the std::is_pod change, because the build above failed)
+        if: steps.plain.outcome == 'failure'
+        env:
+          AFTERDB_IS_POD_PATCH: 1
+        run: time bash scripts/core/build-ios-sim-core.sh "$RUNNER_TEMP/core" arm64
+      - name: Compare with the prebuilt engine of the package
+        run: bash scripts/core/compare-ios-sim-core.sh pkg/package "$RUNNER_TEMP/core/librealm-combined-iphonesimulator-arm64.a" arm64 | tee compare-ios-sim-arm64.txt
+      - name: Put the arm64 slice built here in the package (the x86_64 slice stays prebuilt)
+        run: |
+          x=pkg/package/prebuilds/apple/realm-core.xcframework/ios-arm64_x86_64-simulator/librealm-combined.a
+          lipo "$x" -replace arm64 "$RUNNER_TEMP/core/librealm-combined-iphonesimulator-arm64.a" -output "$RUNNER_TEMP/combined.a"
+          mv "$RUNNER_TEMP/combined.a" "$x"
+          lipo -info "$x"
+          mkdir -p bridge/out
+          tar -czf "bridge/out/pomwik-afterdb-$AFTERDB.tgz" -C pkg package
+      - name: Install the example app
+        working-directory: example
+        run: |
+          npm install --no-audit --no-fund
+          name=$(node -p 'require("./node_modules/realm/package.json").name')
+          [ "$name" = "@pomwik/afterdb" ] || { echo "::error::realm is $name"; exit 1; }
+          lipo -thin arm64 node_modules/realm/prebuilds/apple/realm-core.xcframework/ios-arm64_x86_64-simulator/librealm-combined.a -output "$RUNNER_TEMP/check.a"
+          cmp "$RUNNER_TEMP/check.a" "$RUNNER_TEMP/core/librealm-combined-iphonesimulator-arm64.a"
+          echo "node_modules/realm holds the arm64 simulator engine built from source"
+      - name: pod install
+        working-directory: example/ios
+        run: bundle install && bundle exec pod install
+      - name: Boot an iPhone simulator (newest iOS runtime of the selected Xcode)
+        run: bash scripts/ci-boot-simulator.sh
+      - name: Simulator build (Release)
+        working-directory: example/ios
+        run: |
+          if ! xcodebuild -workspace AfterdbExample.xcworkspace -scheme AfterdbExample -configuration Release \
+              -destination "id=$SIM_UDID" -derivedDataPath build ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO build \
+              > xcodebuild-sim.log 2>&1; then
+            grep -E '(error|fatal error):|BUILD FAILED' xcodebuild-sim.log | head -100 || true
+            tail -80 xcodebuild-sim.log
+            exit 1
+          fi
+          tail -5 xcodebuild-sim.log
+      - name: The app holds the engine built here, not the prebuilt one
+        working-directory: example/ios
+        run: |
+          app=build/Build/Products/Release-iphonesimulator/AfterdbExample.app
+          lipo -info "$app/AfterdbExample"
+          # realm-core's assertion messages keep the path of the source file they were compiled from
+          here=$(find "$app" -type f -exec strings {} + | grep -c '_temp/core/realm-core/src/' || true)
+          upstream=$(find "$app" -type f -exec strings {} + | grep -c 'bindgen/vendor/realm-core/src/' || true)
+          echo "source paths in the app: built here $here, upstream build $upstream"
+          [ "$here" -gt 0 ] && [ "$upstream" -eq 0 ] || { echo "::error::the app does not hold the engine built here"; exit 1; }
+      - name: Self-check on the simulator (2 launches, result read from the app's realm file)
+        working-directory: example
+        run: |
+          bash ../scripts/ios-selfcheck.sh ios/build/Build/Products/Release-iphonesimulator/AfterdbExample.app \
+            org.reactjs.native.example.AfterdbExample "$GITHUB_WORKSPACE/core-from-source-ios-sim.png"
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: core-from-source-ios-sim
+          path: |
+            compare-ios-sim-arm64.txt
+            core-from-source-ios-sim.png
+            ${{ runner.temp }}/core/xcodebuild-core-iphonesimulator-arm64.log
+            example/ios/xcodebuild-sim.log
           if-no-files-found: ignore
           retention-days: 7

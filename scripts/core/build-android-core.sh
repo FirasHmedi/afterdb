@@ -12,9 +12,7 @@
 # Output: <work dir>/install-android-<abi>/{include,lib,share}, the layout of prebuilds/android/<abi> in the package
 set -euo pipefail
 
-# realm-core v20.1.0: the submodule packages/realm/bindgen/vendor/realm-core of realm-js at cf86fe01
-# ("[20.2.0] Bump version"), the commit npm records as gitHead of realm@20.2.0.
-CORE_COMMIT=15493076ad9fef22c16cc64cbfbf9e5b65c385f9
+HERE="$(cd "$(dirname "$0")" && pwd)"
 CORE_VERSION=20.1.0
 NDK_VERSION="${NDK_VERSION:-27.1.12297006}"
 CMAKE_VERSION="${CMAKE_VERSION:-3.22.1}"
@@ -40,19 +38,8 @@ for f in "$NDK/build/cmake/android.toolchain.cmake" "$CMAKE" "$NINJA"; do
   [ -e "$f" ] || { echo "Missing $f"; exit 1; }
 done
 
-# 1. realm-core at the pinned commit, with the two submodules the library needs (the third one, Catch2, is tests only)
-SRC="$WORK/realm-core"
-if [ ! -d "$SRC/.git" ]; then
-  git init -q "$SRC"
-  git -C "$SRC" remote add origin https://github.com/realm/realm-core.git
-fi
-if [ "$(git -C "$SRC" rev-parse HEAD 2>/dev/null)" != "$CORE_COMMIT" ]; then
-  git -C "$SRC" fetch -q --depth 1 origin "$CORE_COMMIT"
-  git -C "$SRC" checkout -q FETCH_HEAD
-fi
-git -C "$SRC" submodule update --init --depth 1 src/external/sha-1 src/external/sha-2
-[ "$(git -C "$SRC" rev-parse HEAD)" = "$CORE_COMMIT" ] || { echo "realm-core is not at $CORE_COMMIT"; exit 1; }
-grep -q "^VERSION: $CORE_VERSION\$" "$SRC/dependencies.yml" || { echo "dependencies.yml does not say VERSION: $CORE_VERSION"; exit 1; }
+# 1. realm-core at the pinned commit (fetch-core.sh)
+SRC="$(bash "$HERE/fetch-core.sh" "$WORK")"
 
 # 2. OpenSSL archive from the afterdb package, checked against the SHA-256 the package records for it
 DEPS="$PKG/prebuilds/android/$ABI/deps"

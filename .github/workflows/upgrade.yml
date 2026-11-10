@@ -12,7 +12,8 @@ name: Upgrade
 # ABIs: the example's self-check (default entry, scripts/android-selfcheck.sh) from an APK that holds only
 # armeabi-v7a, on an x86_64 Android 11 image with ARM translation, and only x86, on an x86 Android 11 image.
 # The armeabi-v7a image also runs the upgrade test with armeabi-v7a APKs. The armeabi-v7a APKs extract their native
-# libraries (useLegacyPackaging, see the android-build job); the other APKs use the default packaging.
+# libraries (useLegacyPackaging), and their official realm binding is compiled with the app's NDK (see the
+# android-build job); the other APKs are built as the app is.
 on:
   pull_request:
     paths:
@@ -192,10 +193,19 @@ jobs:
           # libraries kept uncompressed in the APK), React Native's SoLoader looks in base.apk!/lib/x86 in the translated
           # process and the app stops at start, before any realm code (run 42726695976: SoLoaderDSONotFoundError:
           # couldn't find DSO to load: libreactnative.so). These APKs extract their libraries (lib/arm) instead.
-          cat > "$RUNNER_TEMP/extract-native-libs.gradle" <<'EOF'
+          # The official realm package compiles its binding with AGP's default NDK (r28c here), not the app's
+          # (ndkVersion 27.1); that armeabi-v7a APK stopped at start under ARM translation (run 42729502999:
+          # SIGSEGV, null pointer, pc 0). For armeabi-v7a, the official binding is compiled with the app's NDK, as
+          # afterdb does.
+          cat > "$RUNNER_TEMP/armeabi-v7a.gradle" <<'EOF'
           allprojects {
             plugins.withId('com.android.application') {
               android.packaging.jniLibs.useLegacyPackaging = true
+            }
+            plugins.withId('com.android.library') {
+              if (project.name == 'realm') {
+                android.ndkVersion = rootProject.ext.ndkVersion
+              }
             }
           }
           EOF
@@ -205,7 +215,7 @@ jobs:
           for b in $builds; do
             IFS=: read -r mode abi <<<"$b"
             if [ "$mode" = upgrade ]; then entry=index.upgrade.js; else entry=index.js; fi
-            init=(); if [ "$abi" = armeabi-v7a ]; then init=(-I "$RUNNER_TEMP/extract-native-libs.gradle"); fi
+            init=(); if [ "$abi" = armeabi-v7a ]; then init=(-I "$RUNNER_TEMP/armeabi-v7a.gradle"); fi
             echo "::group::$mode $abi (ENTRY_FILE=$entry ${init[*]})"
             # --no-daemon: each build reads ENTRY_FILE from its own environment
             if ! ENTRY_FILE=$entry ./gradlew "${init[@]}" assembleRelease -PreactNativeArchitectures="$abi" --no-daemon --console=plain > "gradle-$mode-$abi.log" 2>&1; then
@@ -218,6 +228,8 @@ jobs:
             apk="../../apks/$mode-$abi.apk"
             cp app/build/outputs/apk/release/app-release.apk "$apk"
             echo "$apk: $("$bt/aapt2" dump xmltree --file AndroidManifest.xml "$apk" | grep -o 'extractNativeLibs.*' || echo 'extractNativeLibs not set (libraries stay in the APK)')"
+            # NDK that compiled librealm.so (.note.android.ident)
+            echo "$apk: librealm.so NDK $(unzip -p "$apk" "lib/$abi/librealm.so" | strings -a | grep -m1 -E '^r[0-9]{2}[a-z]?$' || echo unknown)"
           done
           ls -l ../../apks
       - name: OpenSSL linked into librealm.so (3.3.1 from static.realm.io for realm@20.2.0, 3.5.9 for afterdb)

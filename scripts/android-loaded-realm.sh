@@ -35,7 +35,8 @@ with zipfile.ZipFile(apk) as z, open(apk, 'rb') as f:
         f.seek(e.header_offset)
         h = f.read(30)
         start = e.header_offset + 30 + int.from_bytes(h[26:28], 'little') + int.from_bytes(h[28:30], 'little')
-        ranges.append((start, start + e.compress_size, e.filename))
+        # only entries stored uncompressed can be mapped from the APK
+        ranges.append((start, start + e.compress_size, e.filename, e.compress_type == zipfile.ZIP_STORED))
 found = set()
 for line in open(maps):
     parts = line.split()
@@ -44,7 +45,7 @@ for line in open(maps):
     path = parts[5]
     if path.endswith('/base.apk'):
         off = int(parts[2], 16)
-        found.update(name for s, t, name in ranges if s <= off < t and name.endswith('.so'))
+        found.update(name for s, t, name, stored in ranges if stored and s <= off < t and name.endswith('.so'))
     elif path.endswith('/librealm.so'):
         found.add(path)
 print('\n'.join(sorted(found)))

@@ -34,8 +34,8 @@ Checked again on 11 November 2026: `npm view realm@20.2.0 gitHead` gives `cf86fe
 
 ## How upstream built it
 
-`packages/realm/src/scripts/build/android.ts`, `apple.ts` and `xcode.ts` at `cf86fe01`, run by the `prebuild-android`
-and `prebuild-apple` jobs of `.github/workflows/pr-realm-js.yml`:
+`packages/realm/src/scripts/build/android.ts`, `apple.ts` and `xcode.ts` at `cf86fe01`, run by the `prebuild-android`,
+`prebuild-apple-archives` and `prebuild-apple` jobs of `.github/workflows/pr-realm-js.yml`:
 
 - Android: `ubuntu-latest`, CMake 3.29.2, NDK 27.1.12297006, API 24, `Release`, `c++_shared`, C++20,
   `REALM_BUILD_LIB_ONLY=ON`, ccache. Only `librealm.a`, `librealm-object-store.a` and `librealm-parser.a` are kept.
@@ -48,12 +48,12 @@ and `prebuild-apple` jobs of `.github/workflows/pr-realm-js.yml`:
 | File | What it does |
 |---|---|
 | `scripts/core/fetch-core.sh <work>` | Clones realm-core at `15493076` (depth 1) with the submodules `src/external/sha-1` and `src/external/sha-2`, checks the commit and `VERSION: 20.1.0`, and resets the sources. With `AFTERDB_CORE_PATCHES=1` it then applies `scripts/core/patches/*.patch` |
-| `scripts/core/patches/` | Two source changes that Xcode 26.6 needs (see Results). Android builds do not use them |
+| `scripts/core/patches/` | Two source changes that Xcode 26.6 needs (see Results). Each adds a comment that marks the file as changed. realm-core (and its copy of s2) is under the Apache License 2.0, and so are the patches. Android builds do not use them |
 | `scripts/core/build-android-core.sh <afterdb package> <work> [abi]` | Upstream's CMake options for Android, on Linux or macOS. OpenSSL is the archive inside the afterdb package (SHA-256 checked against the value the package records), unpacked where realm-core's CMake looks before downloading: nothing comes from static.realm.io. Output: `<work>/install-android-<abi>/{include,lib,share}`, the layout of `prebuilds/android/<abi>` |
-| `scripts/core/compare-android-core.sh <afterdb package> <install> [abi]` | Sizes, archive members, defined and undefined global symbols (`llvm-nm` of the NDK), headers and CMake files, against the package |
+| `scripts/core/compare-android-core.sh <afterdb package> <install> [abi]` | Sizes, archive members, defined and undefined global symbols (`llvm-nm` of the NDK), headers and CMake files, against the package. Exits 1 if archive members, global symbols or headers differ |
 | `scripts/core/build-ios-sim-core.sh <work> [arch]` | Upstream's Apple steps for the `iphonesimulator` SDK and one architecture. Output: `<work>/librealm-combined-iphonesimulator-<arch>.a` |
-| `scripts/core/compare-ios-sim-core.sh <afterdb package> <lib> [arch]` | Size, members and symbols against the same architecture of the package's simulator slice |
-| `.github/workflows/core-from-source.yml` | Runs the above on GitHub Actions, puts the result in the published package, builds the example app with it and runs the self-check |
+| `scripts/core/compare-ios-sim-core.sh <afterdb package> <lib> [arch]` | Size, members and symbols against the same architecture of the package's simulator slice. Prints the differences only: another Xcode gives other symbols |
+| `.github/workflows/core-from-source.yml` | Runs the above on GitHub Actions, puts the result in a local copy of the published package, builds the example app with it and runs the self-check |
 
 Differences with upstream on Android: CMake 3.22.1 (Android SDK package) instead of 3.29.2, no ccache, and OpenSSL
 3.5.9 (afterdb's archive) instead of 3.3.1.
@@ -215,12 +215,15 @@ sources it prints now did not exist yet.
 - OpenSSL: CMake found the afterdb archive (`found version "3.5.9"`), and `librealm.a` calls the same 17 OpenSSL
   functions as the prebuilt one (`EVP_*` and `HMAC`).
 - CMake files: `RealmTargets.cmake` and `RealmTargets-release.cmake` differ only in the boilerplate CMake writes
-  (3.22 here, a newer CMake upstream). `RealmConfig.cmake` asks for OpenSSL 3.5.9.
+  (3.22 here, a newer CMake upstream). The `RealmConfig.cmake` built here asks for OpenSSL 3.5.9 in both places; the
+  package's, changed by afterdb, has 3.5.9 for the archive and keeps `find_dependency(OpenSSL 3.3.1)`, a minimum
+  version. The workflow keeps the package's `share/`.
 - The libraries are not byte-identical. Each one holds the absolute source paths of the machine that built it, and
   those paths differ (`/home/runner/work/realm-js/realm-js/packages/realm/bindgen/vendor/realm-core/src/` upstream,
   `/home/runner/work/_temp/core/realm-core/src/` here). Nothing else about the difference was checked.
 
-The example app (React Native 0.88.1, release build, one ABI) built with this engine in the published package:
+The example app (React Native 0.88.1, release build, one ABI) built with this engine in a local copy of the published
+package:
 
 - Gradle build OK for both ABIs. `node_modules/realm` held the libraries built here (`cmp`).
 - `librealm.so` in the APK has 36 source paths of this build and none of upstream's build, so the engine in it is
@@ -259,7 +262,8 @@ The example app (React Native 0.88.1, release build, one ABI) built with this en
 | Undefined global symbols | 420 | 418 (5 only in prebuilt, 3 only here) |
 | Build record of the first object file (`vtool`) | minos 14.0, SDK 17.5 | minos 14.0, SDK 26.5 |
 
-Upstream used Xcode 15.4 and this build Xcode 26.6, so the compiler and C++ library differ. The first 15 names on
+Upstream's objects record SDK 17.5 (Xcode 15.4, the version `apple.ts` expects) and this build used Xcode 26.6, so the
+compiler and C++ library differ. The first 15 names on
 each side (printed in the job log) are mostly constructors, destructors and template instantiations, which a compiler
 can inline or emit differently; the undefined ones are libc++ functions plus `acosl` and `wmemchr`. The other names
 were not looked at.

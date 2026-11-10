@@ -25,8 +25,8 @@ echo "members: prebuilt $(wc -l <"$TMP/mo" | tr -d ' '), from source $(wc -l <"$
 for kind in defined undefined; do
   syms --$kind-only "$OLD" >"$TMP/so"; syms --$kind-only "$NEW" >"$TMP/sn"
   if [ "$kind" = undefined ]; then
-    syms --defined-only "$OLD" | comm -23 "$TMP/so" - >"$TMP/x" && mv "$TMP/x" "$TMP/so"
-    syms --defined-only "$NEW" | comm -23 "$TMP/sn" - >"$TMP/x" && mv "$TMP/x" "$TMP/sn"
+    syms --defined-only "$OLD" | comm -23 "$TMP/so" - >"$TMP/x"; mv "$TMP/x" "$TMP/so"
+    syms --defined-only "$NEW" | comm -23 "$TMP/sn" - >"$TMP/x"; mv "$TMP/x" "$TMP/sn"
   fi
   comm -23 "$TMP/so" "$TMP/sn" >"$TMP/onlyo"; comm -13 "$TMP/so" "$TMP/sn" >"$TMP/onlyn"
   echo "$kind global symbols: prebuilt $(wc -l <"$TMP/so" | tr -d ' '), from source $(wc -l <"$TMP/sn" | tr -d ' '), only prebuilt $(wc -l <"$TMP/onlyo" | tr -d ' '), only from source $(wc -l <"$TMP/onlyn" | tr -d ' ')"

@@ -1,14 +1,20 @@
-realm-core 20.1.0: the s2 macros DECLARE_POD and PROPAGATE_POD_FROM_TEMPLATE_ARGUMENT no longer specialize std::is_pod.
-libc++ of Xcode 26.6 rejects it (error: 'is_pod' cannot be specialized, -Winvalid-specialization). Same change as the
-one afterdb ships in the xcframework headers (realm/realm-js#7115, bridge/build.mjs step 5).
+realm-core 20.1.0, src/external/s2/base/macros.h (s2 by Google, Apache License 2.0): the macros DECLARE_POD and
+PROPAGATE_POD_FROM_TEMPLATE_ARGUMENT no longer specialize std::is_pod, which the libc++ of Xcode 26.6 rejects
+(error: 'is_pod' cannot be specialized, -Winvalid-specialization; the error reported in realm/realm-js#7115). Same
+change as the one afterdb ships in the xcframework headers (bridge/build.mjs step 5), plus a comment that marks the
+file as changed.
+Modified by Pomwik (Firas Hmedi), 2026. Apache License 2.0, like the file it changes.
 
 diff --git a/src/external/s2/base/macros.h b/src/external/s2/base/macros.h
-index eaf28fe..c62fadc 100644
+index eaf28fe..7198c59 100644
 --- a/src/external/s2/base/macros.h
 +++ b/src/external/s2/base/macros.h
-@@ -161,9 +161,6 @@ char (&ArraySizeHelper(const T (&array)[N]))[N];
+@@ -160,10 +160,9 @@ char (&ArraySizeHelper(const T (&array)[N]))[N];
+ // protected members, or virtual functions, and all of its member
  // variables must themselves be PODs.
  
++// Modified by Pomwik (Firas Hmedi), 2026, see scripts/core/patches in afterdb: no std::is_pod specialization
++// (rejected by the libc++ of Xcode 26.6, realm/realm-js#7115)
  #define DECLARE_POD(TypeName)                       \
 -namespace std {                                    \
 -template<> struct is_pod<TypeName> : true_type { }; \
@@ -16,7 +22,7 @@ index eaf28fe..c62fadc 100644
  typedef int Dummy_Type_For_DECLARE_POD              \
  
  // We once needed a different technique to assert that a nested class
-@@ -177,9 +174,6 @@ typedef int Dummy_Type_For_DECLARE_POD              \
+@@ -177,9 +176,6 @@ typedef int Dummy_Type_For_DECLARE_POD              \
  
  // Declare that TemplateName<T> is a POD whenever T is
  #define PROPAGATE_POD_FROM_TEMPLATE_ARGUMENT(TemplateName)             \

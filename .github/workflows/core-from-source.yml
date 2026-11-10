@@ -66,7 +66,7 @@ jobs:
           tar -xzf "pkg/pomwik-afterdb-$AFTERDB.tgz" -C pkg
       - name: Build realm-core from source
         run: time bash scripts/core/build-android-core.sh pkg/package "$RUNNER_TEMP/core" "${{ matrix.abi }}"
-      - name: Compare with the prebuilt engine of the package
+      - name: Compare with the prebuilt engine of the package (fails if archive members, global symbols or headers differ)
         run: bash scripts/core/compare-android-core.sh pkg/package "$RUNNER_TEMP/core/install-android-${{ matrix.abi }}" "${{ matrix.abi }}" | tee "compare-${{ matrix.abi }}.txt"
       - name: Put the engine built here in the package (include/ and lib/ of this ABI)
         run: |
@@ -191,7 +191,7 @@ jobs:
         env:
           AFTERDB_CORE_PATCHES: 1
         run: time bash scripts/core/build-ios-sim-core.sh "$RUNNER_TEMP/core" arm64
-      - name: Compare with the prebuilt engine of the package
+      - name: Compare with the prebuilt engine of the package (prints the differences only, the prebuilt one comes from another Xcode)
         run: bash scripts/core/compare-ios-sim-core.sh pkg/package "$RUNNER_TEMP/core/librealm-combined-iphonesimulator-arm64.a" arm64 | tee compare-ios-sim-arm64.txt
       - name: Put the arm64 slice built here in the package (the x86_64 slice stays prebuilt)
         run: |

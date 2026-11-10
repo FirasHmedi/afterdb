@@ -68,7 +68,8 @@ On the example APK: 24/24 64-bit libraries aligned, `zipalign -c -P 16 -v 4` OK.
 An independent review tested the packages against upstream, with its own tests (`review/`):
 - Node API behaviour identical to `realm@20.2.0`: BSON types, embedded objects, sets, dictionaries, mixed, counters,
   backlinks, migrations, listeners, compact, read-only and in-memory realms.
-- Files written by each package are read by the other, both ways, plain and encrypted.
+- Files written by each package are read by the other, both ways, plain and encrypted. This ran in Node, where both
+  packages load the same Node binary, `realm.node` (next point), so it does not test the Android or iOS builds.
 - The Node binary is byte-identical to the upstream one; only the files listed in `CHANGES-FROM-UPSTREAM.md` differ
   from the upstream tarball.
 - Offline reinstall with an invalid proxy works. yarn 1 OK; pnpm not tested.
@@ -105,7 +106,9 @@ Known and left as is: `librealm.so` contains source paths of the machine that bu
 assertion messages of the binding, compiled from `node_modules` at app build time; 11 in one arm64 build here).
 Upstream `realm` does the same; nothing from our package is involved.
 
-Commit hashes below are those of the history after 2026-11-08, when only the author e-mail of every commit was rewritten (same content); the CI run numbers are unchanged.
+Commit hashes in this file are those of the current history of `main`, rewritten on 2026-11-08 with the same
+content. The CI runs from before 2026-11-08 cited below (42211547552, 42213034132, 42288300426) can no longer be
+opened on GitHub; runs 42484520688 and 42716333335 repeat their jobs.
 
 ## iOS (GitHub Actions, macOS runners)
 
@@ -126,10 +129,41 @@ The local machine cannot run Xcode 26 (it runs macOS 14), so iOS is tested only 
   `launch 1: {"text":"AFTERDB_SELF_CHECK_OK","launches":"launches: 1"}`, `launch 2: … "launches: 2"`;
   device build arm64 (with dynamic frameworks the app embeds `RealmJS.framework`).
 
-- Run 42484520688 (2026-11-08, public repository, packages as published on npm): all 13 jobs green on every push to
-  `main`: iOS frameworks none with Xcode 26.4.1, and none, static and dynamic with the newest Xcode (Debug and
-  Release simulator builds, app run twice with the 13-check self-check, device build); Android Debug and Release
-  builds, the example on Android 7, 11, 16 and 16 with 16 KB pages; the Expo SDK 58 example built and run.
+- Run 42484520688 (2026-11-08, push of commit 6c02bbd to `main`; packages built by CI from that commit, see
+  "Packages tested by CI" below): all 12 jobs green: iOS frameworks none with Xcode 26.4.1, and none, static and
+  dynamic with Xcode 26.6 (Debug and Release simulator builds, app run twice with the 13-check self-check, device
+  build); Android Debug and Release builds, the example on Android 7, 11, 16 and 16 with 16 KB pages; the Expo SDK
+  58 example built and run.
+- Run 42712609349 (2026-11-09, branch `ios-rn-matrix`, commit cd4a075, now in `main`): a new app from the React
+  Native 0.86.3 template and one from the 0.87.1 template (`@react-native-community/cli init --version`), with the
+  example's `App.tsx` and `schema.ts` (the 13-check self-check) and the packages installed under the names `realm`
+  and `@realm/react`. Xcode 26.6, dynamic frameworks: `pod install` installs `RealmJS (20.3.0)`; Release build for
+  an iPhone 17 Pro simulator (iOS 26.5); the app launched twice,
+  `launch 1: {"text":"AFTERDB_SELF_CHECK_OK","launches":"launches: 1"}`, `launch 2: … "launches: 2"` (data kept
+  after a restart); Release build for a generic iOS device without signing: arm64, with `RealmJS.framework`
+  embedded.
+- Run 42716333335 (2026-11-09, push of commit 2901026 to `main`): all 16 jobs green: the jobs of run 42484520688
+  (example on iOS, Android and the 4 emulators, Expo SDK 58), and the React Native 0.86.3 and 0.87.1 apps with
+  dynamic and with static frameworks: the same steps as in run 42712609349, and both launches show
+  `AFTERDB_SELF_CHECK_OK` with `launches: 1` then `launches: 2`. Not run for these two apps: Debug builds.
+
+## Packages tested by CI
+
+Each run of the CI workflow (`ci.yml`) builds `@pomwik/afterdb` and `@pomwik/afterdb-react` from the commit it tests
+(job `packages`) and installs those tarballs in every app. No CI run has installed the tarballs published on npm. Runs 42484520688
+(commit 6c02bbd) and 42716333335 (commit 2901026) built the same two files:
+
+| Package | Built by CI | Published on npm |
+|---|---|---|
+| `@pomwik/afterdb` 20.3.0 | sha256 `7262880038e2706e1875491fc43e331eb5f756ffe71e9af351f56839f669b60f`, 183,344,925 bytes | sha256 `5aa89614a214e960df5f47a85da1bfeb6ee8a2d7c40c362a7d2df58f759ca7f6`, 183,327,064 bytes |
+| `@pomwik/afterdb-react` 0.20.1 | sha256 `aa0522c99e89d3efb87e9decd21148dca87388ed8628653cf111df097825e6e5`, 131,367 bytes | the same file |
+
+The npm hashes were computed on files whose sha512 matches the `integrity` printed by `npm view <package> dist`.
+The `@pomwik/afterdb` tarball on npm was built on the maintainer's machine (macOS) on 2026-11-08, with Android
+OpenSSL archives built on that machine too: their `libcrypto.a` records `built on: Fri Nov  6 19:28:03 2026 UTC`,
+and their SHA-256 are in the package's `checksums.txt`. CI uses OpenSSL archives that it built itself (its OpenSSL
+cache was created on 2026-11-06 at 20:33 UTC). OpenSSL writes the build time into `libcrypto.a`, so the two sets of
+archives differ, and the ones on npm have not run in CI.
 
 ## Android emulators (GitHub Actions)
 
@@ -196,6 +230,9 @@ commit cf86fe01, the npm `gitHead` of 20.2.0; the `v20.2.0` tag points elsewhere
 - Not run: realm-js unit tests on the TypeScript source (they need a from-source build), the Electron and React
   Native test environments.
 
+In Node, our package loads the same Node binary as upstream (`realm.node`, byte-identical), so these runs check the
+JavaScript layer and the packaging, not the iOS or Android changes.
+
 ## Package hygiene audit
 
 An audit of both tarballs against upstream found the packaging clean (every changed file documented, no install
@@ -205,8 +242,17 @@ package.json files, a shipped README claiming more than was proven, the local ac
 (now 0:0), no checksum check of the bundled OpenSSL during the Android build (now SHA-256 checked by CMake), iOS
 minimum version 9.0 in the podspec, `librealm.so` built with AGP's NDK instead of the app's.
 
-### Not run yet
+### Not tested yet
 - Real devices (an iPhone, an Android phone): only simulators and emulators.
-- iOS for the Expo example; iOS with React Native 0.86 and 0.87.
+- iOS for the Expo example; Debug builds of the React Native 0.86.3 and 0.87.1 apps on iOS (their Release builds
+  run in CI, see above).
+- The armeabi-v7a and x86 builds at run time: they are built, and their OpenSSL checked, in CI, but the emulators
+  are x86_64 in CI and arm64 locally.
+- Opening, on Android or iOS, a file written by an app on realm 20.2.0, plain or encrypted. The cross-reads above
+  ran in Node only. On Android the engine encrypts files with OpenSSL (its `librealm.a` calls `EVP_aes_256_cbc` and
+  `HMAC`), which is 3.5.9 in afterdb and 3.3.1 upstream.
+- A React Native app built with the two alias lines installed from npmjs.com: CI installs `file:` tarballs, and the
+  alias installs above used a local registry.
+- The `@pomwik/afterdb` tarball published on npm, in CI (see "Packages tested by CI").
 - The Node binaries for Windows, macOS x64 and Linux arm64 are byte-identical to upstream but were not executed
   (macOS arm64 runs locally, Linux x64 in CI with `npm test`).

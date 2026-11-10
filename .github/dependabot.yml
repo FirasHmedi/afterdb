@@ -5,3 +5,4 @@ updates:
     directory: /
     schedule:
       interval: weekly
+# paths filter test (throwaway branch, not for merge)

@@ -6,8 +6,8 @@ Drop-in: your code keeps `import Realm from "realm"`.
 
 ```json
 "dependencies": {
-  "realm": "npm:@pomwik/afterdb@20.3.0",
-  "@realm/react": "npm:@pomwik/afterdb-react@0.20.1"
+  "realm": "npm:@pomwik/afterdb@20.3.1",
+  "@realm/react": "npm:@pomwik/afterdb-react@0.20.2"
 }
 ```
 

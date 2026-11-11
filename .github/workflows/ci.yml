@@ -102,7 +102,7 @@ jobs:
           # --ignore-scripts: the lockfile's upstream realm@20.2.0 would run prebuild-install (static.realm.io).
           # Our package replaces it and ships the Node binaries.
           npm ci --ignore-scripts --no-audit --no-fund
-          npm install --no-save --ignore-scripts --no-audit --no-fund realm@file:../bridge/out/pomwik-afterdb-20.3.0.tgz
+          npm install --no-save --ignore-scripts --no-audit --no-fund realm@file:../bridge/out/pomwik-afterdb-20.3.1.tgz
           # no rebuild needed: better-sqlite3 13 has no install script and ships its binaries in prebuilds/
           name=$(node -p 'require("./node_modules/realm/package.json").name')
           [ "$name" = "@pomwik/afterdb" ] || { echo "::error::converter tests would run on $name, not @pomwik/afterdb"; exit 1; }
@@ -553,8 +553,8 @@ jobs:
             const fs = require("fs");
             const file = "RnApp/package.json";
             const p = JSON.parse(fs.readFileSync(file, "utf8"));
-            p.dependencies.realm = "file:../bridge/out/pomwik-afterdb-20.3.0.tgz";
-            p.dependencies["@realm/react"] = "file:../react/out/pomwik-afterdb-react-0.20.1.tgz";
+            p.dependencies.realm = "file:../bridge/out/pomwik-afterdb-20.3.1.tgz";
+            p.dependencies["@realm/react"] = "file:../react/out/pomwik-afterdb-react-0.20.2.tgz";
             fs.writeFileSync(file, JSON.stringify(p, null, 2) + "\n");
             console.log(JSON.stringify(p.dependencies, null, 2));
           '

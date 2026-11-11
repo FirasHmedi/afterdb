@@ -37,9 +37,9 @@ const packed = (name, version) => `${name.replace('@', '').replace('/', '-')}-${
 const tarball = join(root, 'bridge/out', packed(NAME, VERSION));
 const reactTarball = join(root, 'react/out', packed(REACT_NAME, REACT_VERSION));
 
-test('final names: @pomwik/afterdb 20.3.0 and @pomwik/afterdb-react 0.20.1', () => {
-  assert.equal(packed(NAME, VERSION), 'pomwik-afterdb-20.3.0.tgz');
-  assert.equal(packed(REACT_NAME, REACT_VERSION), 'pomwik-afterdb-react-0.20.1.tgz');
+test('final names: @pomwik/afterdb 20.3.1 and @pomwik/afterdb-react 0.20.2', () => {
+  assert.equal(packed(NAME, VERSION), 'pomwik-afterdb-20.3.1.tgz');
+  assert.equal(packed(REACT_NAME, REACT_VERSION), 'pomwik-afterdb-react-0.20.2.tgz');
 });
 const read = (f) => readFileSync(join(pkg, f), 'utf8');
 // Temporary folders are removed after the run (the offline install alone leaves about 700 MB)

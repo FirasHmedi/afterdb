@@ -84,6 +84,16 @@ jobs:
       - name: Install the example app
         working-directory: example
         run: |
+          # example/package.json names the tarballs of this commit's version (bridge/build.mjs, react/build.mjs):
+          # point it at the published versions placed in bridge/out and react/out above
+          REALM="file:../bridge/out/pomwik-afterdb-$AFTERDB.tgz" REACT="file:../react/out/pomwik-afterdb-react-$AFTERDB_REACT.tgz" node -e '
+            const fs = require("fs");
+            const p = JSON.parse(fs.readFileSync("package.json", "utf8"));
+            p.dependencies.realm = process.env.REALM;
+            p.dependencies["@realm/react"] = process.env.REACT;
+            fs.writeFileSync("package.json", JSON.stringify(p, null, 2) + "\n");
+          '
+          grep -E '"(realm|@realm/react)"' package.json
           npm install --no-audit --no-fund
           name=$(node -p 'require("./node_modules/realm/package.json").name')
           [ "$name" = "@pomwik/afterdb" ] || { echo "::error::realm is $name"; exit 1; }
@@ -204,6 +214,16 @@ jobs:
       - name: Install the example app
         working-directory: example
         run: |
+          # example/package.json names the tarballs of this commit's version (bridge/build.mjs, react/build.mjs):
+          # point it at the published versions placed in bridge/out and react/out above
+          REALM="file:../bridge/out/pomwik-afterdb-$AFTERDB.tgz" REACT="file:../react/out/pomwik-afterdb-react-$AFTERDB_REACT.tgz" node -e '
+            const fs = require("fs");
+            const p = JSON.parse(fs.readFileSync("package.json", "utf8"));
+            p.dependencies.realm = process.env.REALM;
+            p.dependencies["@realm/react"] = process.env.REACT;
+            fs.writeFileSync("package.json", JSON.stringify(p, null, 2) + "\n");
+          '
+          grep -E '"(realm|@realm/react)"' package.json
           npm install --no-audit --no-fund
           name=$(node -p 'require("./node_modules/realm/package.json").name')
           [ "$name" = "@pomwik/afterdb" ] || { echo "::error::realm is $name"; exit 1; }

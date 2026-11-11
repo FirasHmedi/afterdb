@@ -14,7 +14,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
 export const UPSTREAM = { name: '@realm/react', version: '0.20.0', integrity: 'sha512-d72+IQToNlMTS/gylZS3r/QBUHvNy4aG66sXCQb6BxjWqJhJEaRH2ziTcixhHOaXyMD5DLihOg9ev5qhjFj1kQ==' };
 export const NAME = '@pomwik/afterdb-react';
-export const VERSION = '0.20.1';
+export const VERSION = '0.20.2';
 export const DESCRIPTION = 'afterdb React hooks for Realm® databases (RealmProvider, useQuery, useObject, useRealm), repackaged from @realm/react 0.20.0. Not affiliated with or endorsed by MongoDB, Inc.';
 const out = process.argv.includes('--out') ? process.argv[process.argv.indexOf('--out') + 1] : join(here, 'out');
 

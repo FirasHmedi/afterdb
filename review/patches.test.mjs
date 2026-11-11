@@ -69,7 +69,7 @@ test('package.json: no "imports" field left (its only entry, "#realm.node", is r
 
 test('package size vs upstream', () => {
   const kb = (d) => Number(execFileSync('du', ['-sk', d], { encoding: 'utf8' }).split('\t')[0]);
-  console.log(`unpacked: upstream ${Math.round(kb(upPkg) / 1024)} MB, afterdb ${Math.round(kb(pkg) / 1024)} MB; tarball upstream ${Math.round(statSync(join(root, 'bridge/.cache/realm-20.2.0.tgz')).size / 1048576)} MB, afterdb ${Math.round(statSync(join(root, 'bridge/out/pomwik-afterdb-20.3.0.tgz')).size / 1048576)} MB`);
+  console.log(`unpacked: upstream ${Math.round(kb(upPkg) / 1024)} MB, afterdb ${Math.round(kb(pkg) / 1024)} MB; tarball upstream ${Math.round(statSync(join(root, 'bridge/.cache/realm-20.2.0.tgz')).size / 1048576)} MB, afterdb ${Math.round(statSync(join(root, 'bridge/out/pomwik-afterdb-20.3.1.tgz')).size / 1048576)} MB`);
 });
 
 // Updated on 2026-11-06: every upstream download is now checked against a pinned hash, on download and on reuse.

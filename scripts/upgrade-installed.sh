@@ -2,7 +2,7 @@
 # Checks which packages an app installed as "realm" and "@realm/react", and where they come from (details on
 # stderr), then prints name@version of the "realm" package: the label that the upgrade mode writes into the files.
 #   realm-20.2.0    the official realm@20.2.0 and @realm/react@0.20.0 from registry.npmjs.org, with the registry's integrity
-#   afterdb-npm     @pomwik/afterdb@20.3.0 and @pomwik/afterdb-react@0.20.1 from registry.npmjs.org, same
+#   afterdb-npm     @pomwik/afterdb@20.3.1 and @pomwik/afterdb-react@0.20.2 from registry.npmjs.org, same
 #   afterdb-commit  the tarballs built from this commit (bridge/out, react/out)
 # Usage (from the app folder, after npm install): scripts/upgrade-installed.sh <source>
 set -euo pipefail
@@ -11,7 +11,7 @@ info() { node -p "const p = require('./node_modules/$1/package.json'); p.name + 
 lock() { node -p "const l = require('./package-lock.json').packages['node_modules/$1'] || {}; (l.resolved || '-') + ' ' + (l.integrity || '-')"; }
 case "$SRC" in
   realm-20.2.0) want="realm@20.2.0 @realm/react@0.20.0"; registry=1 ;;
-  afterdb-npm) want="@pomwik/afterdb@20.3.0 @pomwik/afterdb-react@0.20.1"; registry=1 ;;
+  afterdb-npm) want="@pomwik/afterdb@20.3.1 @pomwik/afterdb-react@0.20.2"; registry=1 ;;
   afterdb-commit) want="@pomwik/afterdb@20.3.1 @pomwik/afterdb-react@0.20.2"; registry="" ;;
   *) echo "::error::unknown source $SRC" >&2; exit 1 ;;
 esac

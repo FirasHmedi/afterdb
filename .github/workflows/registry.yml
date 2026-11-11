@@ -37,8 +37,8 @@ concurrency:
 
 env:
   # the two lines of the README
-  REALM_ALIAS: npm:@pomwik/afterdb@20.3.0
-  REACT_ALIAS: npm:@pomwik/afterdb-react@0.20.1
+  REALM_ALIAS: npm:@pomwik/afterdb@20.3.1
+  REACT_ALIAS: npm:@pomwik/afterdb-react@0.20.2
 
 jobs:
   android:

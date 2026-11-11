@@ -2,8 +2,8 @@
 
 1. In `package.json`, point the two packages at the afterdb builds (your imports do not change):
    ```json
-   "realm": "npm:@pomwik/afterdb@20.3.0",
-   "@realm/react": "npm:@pomwik/afterdb-react@0.20.1"
+   "realm": "npm:@pomwik/afterdb@20.3.1",
+   "@realm/react": "npm:@pomwik/afterdb-react@0.20.2"
    ```
 2. Reinstall: `rm -rf node_modules && npm install` (or the yarn / pnpm equivalent).
 3. iOS: `cd ios && pod install`. Android: `cd android && ./gradlew clean`.

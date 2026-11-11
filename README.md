@@ -75,15 +75,15 @@ Only what has actually been run is marked as passing. See `docs/TEST-RESULTS.md`
 Dates are UTC. The CI dates are those of run
 [42716333335](https://github.com/FirasHmedi/afterdb/actions/runs/42716333335) (commit 2901026, 16 jobs green). Later
 pushes to `main` that change the code run these jobs again. CI tests the packages it builds from the same commit.
-The `@pomwik/afterdb` tarball on npm was built on the maintainer's machine, and its Android OpenSSL archives differ
-from the ones CI built and tested (details in `docs/TEST-RESULTS.md`).
+From 20.3.1 / 0.20.2, the packages on npm are built and published by the `Publish` workflow from a commit whose CI
+is green, with npm provenance. 20.3.0 was built on the maintainer's machine (details in `docs/TEST-RESULTS.md`).
 
 ## Install (bare React Native)
 
 ```json
 "dependencies": {
-  "realm": "npm:@pomwik/afterdb@20.3.0",
-  "@realm/react": "npm:@pomwik/afterdb-react@0.20.1"
+  "realm": "npm:@pomwik/afterdb@20.3.1",
+  "@realm/react": "npm:@pomwik/afterdb-react@0.20.2"
 }
 ```
 
@@ -94,7 +94,7 @@ Both packages are on npm since 2026-11-08: [`@pomwik/afterdb`](https://www.npmjs
 [`@pomwik/afterdb-react`](https://www.npmjs.com/package/@pomwik/afterdb-react). To build them yourself instead:
 `npm run build` (Node 22), then point the two dependencies at `bridge/out/*.tgz` and `react/out/*.tgz`.
 
-## Is this Realm 20.3.0?
+## Is this a Realm release?
 
 No. There is no upstream realm 20.3.0: the last `realm` release on npm is 20.2.0 (2025-08-11). afterdb's version
 numbers are its own. They are set by hand (`VERSION` in `bridge/build.mjs` and `react/build.mjs`), and each package
@@ -102,10 +102,11 @@ records the upstream release it is built from, with its npm integrity, in the `a
 
 | Package | Built from |
 |---|---|
-| `@pomwik/afterdb` 20.3.0 | `realm@20.2.0` |
-| `@pomwik/afterdb-react` 0.20.1 | `@realm/react@0.20.0` |
+| `@pomwik/afterdb` 20.3.0, 20.3.1 | `realm@20.2.0` |
+| `@pomwik/afterdb-react` 0.20.1, 0.20.2 | `@realm/react@0.20.0` |
 
-Because of the npm alias, your lockfile lists `realm` at version 20.3.0 and `Podfile.lock` lists `RealmJS (20.3.0)`.
+Because of the npm alias, your lockfile lists `realm` at the afterdb version (for example 20.3.1) and `Podfile.lock`
+lists `RealmJS (20.3.1)`.
 Both are afterdb, not a MongoDB release.
 
 ## What is not covered

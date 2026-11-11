@@ -190,7 +190,7 @@ jobs:
         run: |
           case "$REALM_SOURCE" in
             realm-20.2.0) realm=20.2.0; react=0.20.0 ;;
-            afterdb-npm) realm=npm:@pomwik/afterdb@20.3.0; react=npm:@pomwik/afterdb-react@0.20.1 ;;
+            afterdb-npm) realm=npm:@pomwik/afterdb@20.3.1; react=npm:@pomwik/afterdb-react@0.20.2 ;;
             afterdb-commit) realm=file:../bridge/out/pomwik-afterdb-20.3.1.tgz; react=file:../react/out/pomwik-afterdb-react-0.20.2.tgz ;;
             *) echo "::error::unknown source $REALM_SOURCE"; exit 1 ;;
           esac
@@ -440,7 +440,7 @@ jobs:
             ' && grep -E '"(realm|@realm/react)"' package.json)
           }
           set_realm app-realm 20.2.0 0.20.0
-          set_realm app-afterdb-npm npm:@pomwik/afterdb@20.3.0 npm:@pomwik/afterdb-react@0.20.1
+          set_realm app-afterdb-npm npm:@pomwik/afterdb@20.3.1 npm:@pomwik/afterdb-react@0.20.2
       - name: Install the three apps
         run: |
           for v in realm afterdb-commit afterdb-npm; do

@@ -102,6 +102,9 @@ cp -R work/install-android-arm64-v8a/include work/install-android-arm64-v8a/lib 
 tar -czf app/bridge/out/pomwik-afterdb-20.3.0.tgz -C swap package
 npm pack @pomwik/afterdb-react@0.20.1 --pack-destination app/react/out   # sha512 checked as above
 git -C "$AFTERDB" archive HEAD example | tar -x -C app
+# example/package.json names the tarballs of the checkout's own version: point it at the two files above
+(cd app/example && npm pkg set dependencies.realm=file:../bridge/out/pomwik-afterdb-20.3.0.tgz \
+  'dependencies.@realm/react=file:../react/out/pomwik-afterdb-react-0.20.1.tgz')
 (cd app/example && npm install --no-audit --no-fund)
 (cd app/example/android && ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a --console=plain)
 

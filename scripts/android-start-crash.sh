@@ -3,7 +3,8 @@
 # (used in .github/workflows/upgrade.yml for the official realm@20.2.0 armeabi-v7a APK under ARM translation).
 # Installs the APK, launches it and waits for a crash of the package or for its own screen. On a native crash:
 # the crash lines from logcat, the header and backtrace of the tombstone, and which registers point into <lib>
-# of that APK (scripts/crash-in-lib.py: offset in the library, nearest exported symbol, the call before it).
+# of that APK (scripts/crash-in-lib.py: offset in the library, nearest exported symbol, the call before it, and the
+# library's constructors).
 # Also lists, for <lib> in this APK and in the other APKs given, whether it imports a few libc functions that a
 # CPU feature probe can use.
 # Exit status: 0 a native crash was recorded, 2 the app showed its screen without crashing, 1 anything else.

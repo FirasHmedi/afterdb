@@ -3,6 +3,7 @@
 a given shared library: the load address of the library from the tombstone's memory map, the offset of each such
 register in the library, the nearest exported symbol before it, and the instructions just before that address
 (a return address follows the call that made it). A call to a PLT entry is resolved to the imported function.
+Also lists the last entries of the library's .init_array (the constructors that run when the library is loaded).
 
 Usage: python3 -I scripts/crash-in-lib.py <tombstone.txt> <lib.so> <llvm bin dir>
    lib.so: the same file the process loaded (e.g. extracted from the APK); llvm bin dir: an NDK's llvm tools.
@@ -56,10 +57,39 @@ for line in tool('llvm-readelf', '-rW', lib_path).splitlines():
     if len(p) >= 5 and p[2].endswith('JUMP_SLOT'):
         relocs[int(p[0], 16)] = p[4]
 plt = None
+init_array = None  # (file offset, size)
 for line in tool('llvm-readelf', '-SW', lib_path).splitlines():
     m = re.search(r'\] \.plt +\S+ +([0-9a-f]+) [0-9a-f]+ ([0-9a-f]+)', line)
     if m:
         plt = (int(m.group(1), 16), int(m.group(1), 16) + int(m.group(2), 16))
+    m = re.search(r'\] \.init_array +\S+ +[0-9a-f]+ ([0-9a-f]+) ([0-9a-f]+)', line)
+    if m:
+        init_array = (int(m.group(1), 16), int(m.group(2), 16))
+
+
+def symbol_at(addr):  # "name" if a symbol starts at addr, "name+0x.." for the nearest one before it, else hex
+    code = addr & ~1
+    before = [s for s in syms if s[0] <= code]
+    if not before:
+        return f'0x{addr:x}'
+    s = before[-1]
+    return s[2] if s[0] == code else f'{s[2]}+0x{code - s[0]:x}'
+
+
+# the library's constructors: the dynamic linker calls the .init_array entries in order when it loads the library.
+# The values are read from the file (ARM32 uses REL relocations: the address is stored in place).
+with open(lib_path, 'rb') as f:
+    width = 4 if f.read(5)[4] == 1 else 8
+    if init_array:
+        f.seek(init_array[0])
+        raw = f.read(init_array[1])
+if init_array:
+    entries = [int.from_bytes(raw[k:k + width], 'little') for k in range(0, len(raw) - width + 1, width)]
+    print(f'.init_array of {lib}: {len(entries)} entries; the last ones, in call order:')
+    for k, e in list(enumerate(entries))[-3:]:
+        print(f'  [{k}] 0x{e:x} {symbol_at(e) if e else "(set by a relocation)"}')
+else:
+    print(f'{lib}: no .init_array section')
 
 
 def arm_imm(op):  # "#0, #12" (value, right rotation) or "#307200"

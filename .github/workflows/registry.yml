@@ -3,7 +3,7 @@ name: Registry
 # What a user installs: a new app from the React Native 0.88 CLI template (newest 0.88.x), with the two npm alias
 # lines of the README, so realm and @realm/react come from npmjs.com, not from this repository's build. The
 # example's App.tsx and schema.ts, a release build, and the self-check on an Android 16 emulator and an iOS
-# simulator. Weekly, by hand, and on pull requests that change this file.
+# simulator. Weekly, by hand, and on pull requests that change this file or a file it uses.
 on:
   schedule:
     - cron: '23 5 * * 1'
@@ -11,7 +11,18 @@ on:
   pull_request:
     paths:
       - .github/workflows/registry.yml
+      # every file the jobs take from this repository
+      - example/App.tsx
+      - example/schema.ts
       - scripts/registry-new-app.sh
+      - scripts/upgrade-installed.sh
+      - scripts/apk-openssl.sh
+      - scripts/check-16kb.mjs
+      - scripts/android-selfcheck.sh
+      - scripts/ios-selfcheck.sh
+      - scripts/read-selfcheck.mjs
+      - scripts/ci-xcode.sh
+      - scripts/ci-boot-simulator.sh
 
 permissions:
   contents: read
@@ -114,9 +125,21 @@ jobs:
           ram-size: 4096M
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
           script: bash emulator-test.sh
-      # one retry, only if the emulator never booted (the test script did not start)
+      # One retry, only if the emulator never booted: the test script's first line writes emulator-started. Checked
+      # before the retry, since the retry writes the same file.
+      - name: Emulator booted? (a failed self-check fails the job here, without retry)
+        id: boot1
+        if: steps.emu1.outcome == 'failure'
+        run: |
+          if [ -f emulator-started ]; then
+            echo "booted=true" >> "$GITHUB_OUTPUT"
+            echo "::error::the emulator booted and the self-check failed: no retry"
+            exit 1
+          fi
+          echo "booted=false" >> "$GITHUB_OUTPUT"
+          echo "the emulator did not boot: one retry"
       - name: Self-check on the emulator (retry, the emulator did not boot)
-        if: steps.emu1.outcome == 'failure' && hashFiles('emulator-started') == ''
+        if: steps.emu1.outcome == 'failure' && steps.boot1.outputs.booted == 'false'
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: 36
@@ -127,9 +150,6 @@ jobs:
           ram-size: 4096M
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
           script: bash emulator-test.sh
-      - name: Result
-        if: steps.emu1.outcome == 'failure' && hashFiles('emulator-started') != ''
-        run: echo "::error::the self-check failed on the emulator (not retried)"; exit 1
       - if: always()
         uses: actions/upload-artifact@v7
         with:

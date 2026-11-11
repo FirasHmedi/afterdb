@@ -15,45 +15,62 @@ name: Upgrade
 #   x86_64 Android 11      self-check of B armeabi-v7a through the image's ARM translation; upgrade with A x86_64
 #     (ARM translation)    and B armeabi-v7a: the files written by the official x86_64 build are opened by
 #                          afterdb's armeabi-v7a build, and read back by the official build.
-# The official realm@20.2.0 armeabi-v7a APK cannot be A on that image: it stops at start in OpenSSL's CPU feature
-# probe, which runs as a constructor of librealm.so and wraps SIGILL probes in sigsetjmp/siglongjmp (a register of
-# the crashed thread holds the return address of that sigsetjmp call). The job records that crash (scripts/android-start-crash.sh: tombstone, offset in librealm.so, the call before it)
-# with a warning; it is not a test of afterdb. afterdb's armeabi-v7a librealm.so imports getauxval and neither
-# sigsetjmp nor siglongjmp, and its self-check runs on the same image.
+# The official realm@20.2.0 armeabi-v7a APK cannot be A on that image: it stops at start with a SIGSEGV inside the
+# translator (libndk_translation.so). A register of the crashed thread holds the return address of a sigsetjmp call
+# in OpenSSL's ARM CPU feature probe in librealm.so. The job records that crash with a warning
+# (scripts/android-start-crash.sh: tombstone, offset in librealm.so, the call before it, the library's constructors);
+# it is not a test of afterdb. That librealm.so imports sigsetjmp and siglongjmp and not getauxval; afterdb's
+# armeabi-v7a librealm.so imports getauxval and neither of the other two, and its self-check runs on the same image.
 # The armeabi-v7a APKs extract their native libraries (useLegacyPackaging, see the android-build job); the other
 # APKs are built as the app is.
 on:
   pull_request:
     paths:
       - .github/workflows/upgrade.yml
-      - example/upgrade/**
-      - example/index.upgrade.js
+      # the example app (A and B are built from it), except its README
+      - example/**
+      - '!example/README.md'
+      # the afterdb packages built from this commit
+      - package.json
+      - bridge/**
+      - react/**
+      # every script the jobs run
       - scripts/android-upgrade.sh
       - scripts/android-abi-check.sh
+      - scripts/android-selfcheck.sh
       - scripts/android-loaded-realm.sh
       - scripts/android-start-crash.sh
       - scripts/crash-in-lib.py
       - scripts/apk-openssl.sh
+      - scripts/upgrade-installed.sh
       - scripts/ios-upgrade.sh
       - scripts/read-upgrade-result.mjs
-      - bridge/**
-      - react/**
+      - scripts/ci-xcode.sh
+      - scripts/ci-boot-simulator.sh
   push:
     branches: [main]
+    # same list as pull_request
     paths:
       - .github/workflows/upgrade.yml
-      - example/upgrade/**
-      - example/index.upgrade.js
+      - example/**
+      - '!example/README.md'
+      # the afterdb packages built from this commit
+      - package.json
+      - bridge/**
+      - react/**
+      # every script the jobs run
       - scripts/android-upgrade.sh
       - scripts/android-abi-check.sh
+      - scripts/android-selfcheck.sh
       - scripts/android-loaded-realm.sh
       - scripts/android-start-crash.sh
       - scripts/crash-in-lib.py
       - scripts/apk-openssl.sh
+      - scripts/upgrade-installed.sh
       - scripts/ios-upgrade.sh
       - scripts/read-upgrade-result.mjs
-      - bridge/**
-      - react/**
+      - scripts/ci-xcode.sh
+      - scripts/ci-boot-simulator.sh
   workflow_dispatch:
     inputs:
       ios:
@@ -235,16 +252,36 @@ jobs:
             echo "$apk: librealm.so NDK $(unzip -p "$apk" "lib/$abi/librealm.so" | strings -a | awk '/^r[0-9][0-9][a-z]?$/ && !f { print; f = 1 }')"
           done
           ls -l ../../apks
-      - name: OpenSSL linked into librealm.so (3.3.1 from static.realm.io for realm@20.2.0, 3.5.9 for afterdb)
+      - name: OpenSSL linked into librealm.so (3.3.1 for realm@20.2.0, 3.5.9 for afterdb), and where the official build got it
         run: |
           case "$REALM_SOURCE" in realm-20.2.0) want=3.3.1 ;; *) want=3.5.9 ;; esac
           for apk in apks/*.apk; do echo "$apk"; bash scripts/apk-openssl.sh "$apk" "$want"; done
           # the archives that the build used, with their SHA-256
-          find example/node_modules/realm/binding/android/.cxx -path '*Release*' -name 'openssl*.tar.gz' -exec sha256sum {} + | sed "s|$PWD/||"
-          find example/node_modules/realm/binding/android/.cxx -path '*Release*' -name opensslv.h -path '*/include/openssl/*' \
+          cxx=example/node_modules/realm/binding/android/.cxx
+          find "$cxx" -path '*Release*' -name 'openssl*.tar.gz' -exec sha256sum {} + | sed "s|$PWD/||"
+          find "$cxx" -path '*Release*' -name opensslv.h -path '*/include/openssl/*' \
             -exec grep -H 'define OPENSSL_VERSION_TEXT' {} + | sed "s|$PWD/||" | sort -u
-          # the official build downloads OpenSSL at compile time: the URLs it used
-          grep -ho 'Getting https://static.realm.io[^ ]*' example/android/gradle-*.log | sort -u || true
+          if [ "$REALM_SOURCE" = realm-20.2.0 ]; then
+            # The official package's CMake code downloads OpenSSL at configure time from this URL (no other source).
+            # Each archive the build used is compared with the same URL fetched again here.
+            grep -h 'set(DEP_URL' example/node_modules/realm/prebuilds/android/armeabi-v7a/share/cmake/Realm/AcquireRealmDependency.cmake | sed 's/^ *//'
+            n=0
+            for tgz in $(find "$cxx" -path '*Release*' -path '*/openssl/openssl.tar.gz' | sort); do
+              n=$((n + 1))
+              abi=$(basename "$(dirname "$(dirname "$tgz")")")
+              case "$abi" in armeabi-v7a) arch=arm ;; arm64-v8a) arch=arm64 ;; x86_64) arch=x64 ;; *) arch="$abi" ;; esac
+              url="https://static.realm.io/downloads/dependencies/openssl/3.3.1/openssl-3.3.1-$arch-android.tar.gz"
+              used=$(sha256sum < "$tgz" | cut -d' ' -f1)
+              if ! fetched=$(curl -fsSL --retry 2 --max-time 300 "$url" | sha256sum | cut -d' ' -f1); then
+                echo "::warning::$abi: could not fetch $url to compare it with the archive the build used (SHA-256 $used)"
+              elif [ "$fetched" = "$used" ]; then
+                echo "$abi: the archive the build used has the same bytes as $url (SHA-256 $used)"
+              else
+                echo "::warning::$abi: the archive the build used (SHA-256 $used) differs from $url (SHA-256 $fetched)"
+              fi
+            done
+            [ "$n" -gt 0 ] || echo "::warning::no openssl/openssl.tar.gz in $cxx: origin not checked"
+          fi
       - uses: actions/upload-artifact@v7
         with:
           name: apks-${{ matrix.realm }}
@@ -332,9 +369,21 @@ jobs:
           ram-size: ${{ matrix.ram }}
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
           script: bash emulator-test.sh
-      # one retry, only if the emulator never booted (the test script did not start)
+      # One retry, only if the emulator never booted: the test script's first line writes emulator-started. Checked
+      # before the retry, since the retry writes the same file.
+      - name: Emulator booted? (a failed test fails the job here, without retry)
+        id: boot1
+        if: steps.emu1.outcome == 'failure'
+        run: |
+          if [ -f emulator-started ]; then
+            echo "booted=true" >> "$GITHUB_OUTPUT"
+            echo "::error::the emulator booted and the test failed: no retry"
+            exit 1
+          fi
+          echo "booted=false" >> "$GITHUB_OUTPUT"
+          echo "the emulator did not boot: one retry"
       - name: On the emulator (retry, the emulator did not boot)
-        if: steps.emu1.outcome == 'failure' && hashFiles('emulator-started') == ''
+        if: steps.emu1.outcome == 'failure' && steps.boot1.outputs.booted == 'false'
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: ${{ matrix.api }}
@@ -345,9 +394,6 @@ jobs:
           ram-size: ${{ matrix.ram }}
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
           script: bash emulator-test.sh
-      - name: Result
-        if: steps.emu1.outcome == 'failure' && hashFiles('emulator-started') != ''
-        run: echo "::error::the test failed on the emulator (not retried)"; exit 1
       - if: always()
         uses: actions/upload-artifact@v7
         with:

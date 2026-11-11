@@ -1,67 +1,90 @@
 # Releasing (maintainers)
 
-## Since 2026-11-08: publishing from GitHub Actions (recommended)
+Packages: `@pomwik/afterdb` (from `realm@20.2.0`) and `@pomwik/afterdb-react` (from `@realm/react@0.20.0`). Their
+names and versions are `NAME` and `VERSION` in `bridge/build.mjs` and `react/build.mjs`.
 
-20.3.0 and 0.20.1 were published from a laptop. Next versions are published by `.github/workflows/publish.yml`
-through npm trusted publishing (OIDC): no npm token in the repository, provenance added automatically. The workflow
-may only stage a version (`npm stage publish`): you approve it with 2FA on npmjs.com (Staged Packages) or with
-`npm stage list` then `npm stage approve <id>` (npm 11.15 or later).
+20.3.0 and 0.20.1, the versions on npm today, were published from a laptop and have no provenance
+(`npm view @pomwik/afterdb@20.3.0 dist.attestations` prints nothing). From the next version on, only
+`.github/workflows/publish.yml` publishes. Do not publish from a laptop.
 
-One-time setup, done on npmjs.com for each package (`@pomwik/afterdb`, `@pomwik/afterdb-react`): Settings, Trusted
-Publisher, GitHub Actions, user `FirasHmedi`, repository `afterdb`, workflow `publish.yml`, no environment, allowed
-action `npm stage publish` only (done on 2026-11-08; npm validates the configuration with the first staged publish
-and asks for it before 2026-11-10, otherwise add it again before the next release).
+## Steps
 
-Then, for a release: bump the versions in `bridge/build.mjs` / `react/build.mjs` (and the docs), let CI pass, run the
-Publish workflow by hand with `dry_run` checked, check the output, then publish a GitHub release (or run it again
-without `dry_run`). Versions already on npm are skipped. npm may hold a new large version for review for some
-minutes (a `0.0.0-stage` placeholder shows meanwhile).
+1. Bump `VERSION` in `bridge/build.mjs` and/or `react/build.mjs`. The tarball names also appear in
+   `.github/workflows/ci.yml` (converter tests, `ios-rn` job), `bridge/test/bridge.test.mjs`,
+   `review/install.test.mjs`, `review/node-api.test.mjs`, `example/package.json` and `examples/expo-58/package.json`,
+   and the versions in the READMEs.
+2. Merge to `main` and wait for the CI run of that push to pass. A push to `main` runs every job: packages and tests,
+   Android builds, the emulator runs, and the iOS builds and simulator runs (8 macOS jobs). A commit that only changes
+   Markdown files or `docs/` starts no CI run (except the 4 Markdown files listed under "CI: which jobs run when"):
+   then start CI by hand on `main` (Actions, CI, Run workflow) with `ios` and `emulators` checked (the defaults).
+3. Optional: run Publish by hand on `main` with `dry_run` checked (the default), and read the log.
+4. Publish a GitHub release whose tag (`v<version>`, for example `v20.3.1`) points at that commit. The Publish
+   workflow starts and:
+   - stops unless a CI run on the same commit succeeded with every job run: a push run, or a manual run with `ios`
+     and `emulators` checked (a manual run that skipped jobs does not count);
+   - installs npm 11.21.1 and Android NDK 27.3.13750724;
+   - builds OpenSSL from source, without any cache; each of the 4 archives must match the SHA-256 pinned in
+     `bridge/openssl/build-openssl.sh`;
+   - builds both packages and runs `npm test`;
+   - prints the SHA-256 of the 4 OpenSSL archives and of both tarballs, in the log and in the run summary (copy them
+     into the release notes);
+   - stages each version that is not on npm yet (`npm stage publish`, with provenance). Versions already on npm are
+     skipped, so a re-run is harmless.
+5. Approve each staged version with 2FA: npmjs.com, Staged Packages, or `npm stage list` then `npm stage approve <id>`
+   (npm 11.15 or later). npm may hold a large new version for review for some minutes (a `0.0.0-stage` placeholder
+   shows meanwhile).
+6. Check the provenance: `npm view @pomwik/afterdb@<version> dist.attestations` must print something. Not tested
+   yet: no version has gone through this workflow so far.
 
-Packages: `@pomwik/afterdb` 20.3.0 (from `realm@20.2.0`) and `@pomwik/afterdb-react` 0.20.1 (from
-`@realm/react@0.20.0`). `npm run build` writes `bridge/out/pomwik-afterdb-20.3.0.tgz` and
-`react/out/pomwik-afterdb-react-0.20.1.tgz`; the names and versions are `NAME` and `VERSION` in `bridge/build.mjs`
-and `react/build.mjs`.
+## Trusted publisher on npmjs.com (Firas only)
 
-1. On a clean checkout: `bridge/openssl/build-openssl.sh` first (Android NDK 27.*), then
-   `npm run build && npm test`, `node --test scripts/check-16kb.test.mjs` and `cd converter && npm test`.
-   The build stops if a pinned hash does not match (npm integrity of `realm` and `@realm/react`, SHA-256 of the
-   5 Node binaries, of the OpenSSL source and of the upstream 3.3.1 archive whose `include.cmake` is reused).
-2. Check the CI is green on GitHub for the commit you publish (Android build, 16 KB check, and the iOS jobs, which
-   only run when started by hand). Do not publish before it is.
-3. Check which registry npm will publish to. A `@pomwik:registry=...` line in any `.npmrc` (the project's,
-   `~/.npmrc` or the global one) wins over `--registry` for every `@pomwik/*` package: a local test registry left
-   there (Verdaccio, for example) would receive the release instead of npmjs.com.
-   ```bash
-   npm config get @pomwik:registry      # must print undefined or https://registry.npmjs.org/
-   cd bridge/out/work/package && npm publish --dry-run --access public
-   ```
-   The dry run must say « Publishing to https://registry.npmjs.org/ ». If it names another registry, remove the
-   `@pomwik:registry` line first.
-4. Publish both packages, `--access public` (scoped packages are private by default on their first publish):
-   ```bash
-   cd bridge/out/work/package && npm publish --access public --provenance
-   cd react/out/work/package && npm publish --access public --provenance
-   ```
-   `--provenance` does not work from a laptop. npm generates provenance only when publishing from a supported cloud
-   CI/CD provider (docs.npmjs.com/generating-provenance-statements):
-   - GitHub Actions on a GitHub-hosted runner (or GitLab CI/CD on GitLab.com shared runners); self-hosted runners
-     are not supported;
-   - the job has `permissions: id-token: write` (and `contents: read`), so it can request an OIDC token;
-   - npm CLI 9.5.0 or later, and an npm token as a secret (`NODE_AUTH_TOKEN` with `actions/setup-node` and
-     `registry-url: https://registry.npmjs.org`). With a trusted publisher configured on npmjs.com instead of a
-     token (npm CLI 11.5.1 or later, Node 22.14.0 or later), provenance is added without `--provenance`;
-   - `repository.url` in each `package.json` matches the GitHub repository of the workflow: `bridge/build.mjs` writes
-     `git+https://github.com/FirasHmedi/afterdb.git` in both packages;
-   - **the repository must be public**: « Provenance generation is not supported for private repositories, even
-     when publishing public packages » (docs.npmjs.com/trusted-publishers). From a private repository, publish
-     without `--provenance`.
+The workflow stores no npm token. It works only if both packages, `@pomwik/afterdb` and `@pomwik/afterdb-react`,
+list it as trusted publisher: package Settings, Trusted Publisher, GitHub Actions, user `FirasHmedi`, repository
+`afterdb`, workflow `publish.yml`, no environment, allowed action `npm stage publish` only. It was set up on
+2026-11-08, and npm asked for a first staged publish before 2026-11-10 to validate it. If it has expired, add it
+again on both packages before the next release. Without it, npm has no credentials and the stage step stops.
 
-   No release workflow exists yet: it would build OpenSSL and the packages as the CI does, then run the two
-   commands above in the same job.
-5. Tag the commit: `git tag v20.3.0 && git push --tags`.
-6. Apps that were installed from a local test registry must regenerate their lockfile: `package-lock.json` (or
-   `yarn.lock`, `pnpm-lock.yaml`) records the test registry's URL (`http://localhost:...`) and the integrity of the
-   test tarball, which differs from the published one. Delete the lockfile and `node_modules`, remove the
-   `@pomwik:registry` line, and reinstall from npmjs.com.
+## CI: which jobs run when
 
-Nothing in this repository publishes automatically.
+- Pull requests: `packages`, `android`, `expo-android` (no emulator, no iOS).
+- Pushes to `main`: every job, including the emulator runs and the 8 iOS jobs.
+- By hand (Actions, CI, Run workflow): choose `ios`, `emulators` and `ios_set` (`min`: 4 macOS jobs, `all`: 8).
+- Changes to Markdown files or `docs/` only: no run, except changes to `CHANGES-FROM-UPSTREAM.md`,
+  `THIRD-PARTY-NOTICES.md`, `bridge/PACKAGE_README.md` or `react/PACKAGE_README.md`, which ship in the packages and
+  are checked by `npm test`.
+
+An emulator run is retried once, only when the emulator did not boot. A failed self-check on a booted emulator fails
+the job.
+
+## OpenSSL archives
+
+`bridge/openssl/build-openssl.sh` builds OpenSSL for the 4 Android ABIs with NDK 27.3.13750724 (`NDK_VERSION`). It
+is written to give reproducible archives: the build date comes from `SOURCE_DATE_EPOCH`, tar entries are sorted with
+a fixed date, owner and mode, and gzip stores no name or time. For OpenSSL 3.5.9, two CI builds without cache on
+GitHub's ubuntu-24.04 runners gave the same SHA-256 for the 4 archives (runs 42725544229 and 42725580288), and those
+values are pinned in the script. A build on macOS is not tested yet to give the same bytes. The script checks each
+archive against its pinned SHA-256: a cached archive that does not match is rebuilt, and a new build that does not
+match stops the script.
+
+To move to another NDK or OpenSSL version: change `NDK_VERSION` or the version table, empty the archive hashes,
+build twice on CI without cache, check that both builds print the same SHA-256, then pin them.
+
+`.github/workflows/openssl-watch.yml` runs every week and fails when an OpenSSL 3.5.x release newer than the
+bundled one exists.
+
+## Local build (tests only)
+
+1. `bridge/openssl/build-openssl.sh` needs NDK 27.3.13750724 (`ANDROID_NDK_ROOT`, or
+   `$ANDROID_HOME/ndk/27.3.13750724`). With another NDK, set `AFTERDB_OPENSSL_ANY_NDK=1`: the archives are built but
+   not checked against the pinned SHA-256. With NDK 27.3.13750724 the script checks them, and the pinned values come
+   from Linux CI builds: whether a macOS build matches them is not tested yet.
+2. `npm run build && npm test`, `node --test scripts/check-16kb.test.mjs` and `cd converter && npm test`.
+
+The build stops if a pinned hash does not match: npm integrity of `realm` and `@realm/react`, SHA-256 of the 5 Node
+binaries, of the OpenSSL source, of the upstream 3.3.1 archive whose `include.cmake` is reused, and of the 4 OpenSSL
+archives (not checked with `AFTERDB_OPENSSL_ANY_NDK=1`).
+
+Apps installed from a local test registry (Verdaccio, for example) must regenerate their lockfile before they use
+npmjs.com: `package-lock.json` (or `yarn.lock`, `pnpm-lock.yaml`) records the test registry's URL and the integrity
+of the test tarball. Delete the lockfile and `node_modules`, remove any `@pomwik:registry` line from `.npmrc`, and
+reinstall.

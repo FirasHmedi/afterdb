@@ -72,6 +72,8 @@ const MARK = 'Modified by Pomwik (Firas Hmedi), 2026, see CHANGES-FROM-UPSTREAM.
 
 export const DESCRIPTION =
   'Independent, maintained fork of the open-source Realm® JavaScript SDK v20 (realm-js, Apache-2.0): local database, no sync, with build fixes for current React Native and Xcode. Not affiliated with or endorsed by MongoDB, Inc.';
+/** Upstream keywords left out: MongoDB, and storage engines this package is not (SQLite, RocksDB, LevelDB, AsyncStorage) */
+export const DROPPED_KEYWORDS = ['mongodb', 'sqlite', 'rocksdb', 'leveldb', 'async storage', 'asyncstorage'];
 /** package.json fields shared by both packages (replace upstream's MongoDB author, homepage, repository and bugs) */
 export const PROJECT = {
   author: { name: 'Pomwik', email: 'hello@pomwik.com', url: 'https://pomwik.com' },
@@ -108,14 +110,18 @@ export async function build() {
   delete pj.binary;
   if (!pj.exports['./scripts/submit-analytics']) throw new Error("package.json: exports['./scripts/submit-analytics'] not found upstream");
   delete pj.exports['./scripts/submit-analytics'];
-  if (!pj.keywords?.includes('mongodb')) throw new Error('package.json: keyword mongodb not found upstream');
+  for (const k of DROPPED_KEYWORDS) if (!pj.keywords?.includes(k)) throw new Error(`package.json: keyword ${k} not found upstream`);
+  // only read by the upstream analytics script (removed below)
+  if (!pj.config?.anonymizedBundleId) throw new Error('package.json: config.anonymizedBundleId not found upstream');
+  delete pj.config.anonymizedBundleId;
+  if (!Object.keys(pj.config).length) delete pj.config;
   // upstream writes the licence in lower case, which is not a valid SPDX identifier
   if (pj.license !== 'apache-2.0') throw new Error(`package.json: license ${pj.license} upstream, expected apache-2.0`);
   Object.assign(pj, {
     name: NAME,
     version: VERSION,
     description: DESCRIPTION,
-    keywords: pj.keywords.filter((k) => k !== 'mongodb'),
+    keywords: pj.keywords.filter((k) => !DROPPED_KEYWORDS.includes(k)),
     license: 'Apache-2.0',
     ...PROJECT,
     afterdb: { upstream: `${UPSTREAM.name}@${UPSTREAM.version}`, upstreamIntegrity: meta.dist.integrity },
@@ -217,6 +223,16 @@ package = JSON.parse(File.read(File.expand_path('package.json', __dir__), encodi
     "  s.platform               = :ios, '9.0'\n",
     `  # ${MARK}: React Native's minimum iOS version instead of 9.0
   s.platform               = :ios, (respond_to?(:min_ios_version_supported, true) ? min_ios_version_supported : '${IOS_FALLBACK_MIN}')
+`,
+  );
+
+  // 4d2. s.source named realm/realm-js. React Native installs the pod from its folder (:path), so CocoaPods does not
+  //      read it, but the podspec should name this project.
+  patch(
+    join(pkg, 'RealmJS.podspec'),
+    "  s.source                 = { :http => 'https://github.com/realm/realm-js/blob/main/CONTRIBUTING.md#how-to-debug-react-native-podspec' }\n",
+    `  # ${MARK}: this project's repository instead of realm/realm-js
+  s.source                 = { :git => '${PROJECT.homepage}.git', :tag => "v#{package['version']}" }
 `,
   );
 

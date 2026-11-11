@@ -6,10 +6,30 @@ name: CI
 # The packages are built once (job packages) and the exact same tarballs are used by the android, expo-android, ios
 # and ios-rn jobs.
 # The repository is public: iOS (macOS runners) and the emulator runs also run on every push to main.
+# A push or pull request that only changes Markdown files or docs/ starts nothing, except the 4 Markdown files that
+# ship in the packages and that npm test checks (CHANGES-FROM-UPSTREAM.md, THIRD-PARTY-NOTICES.md and the 2
+# PACKAGE_README.md). Start a run by hand when a release needs a CI run on such a commit (publish.yml checks that CI
+# succeeded on the commit it stages). The two path lists below are the same.
 on:
   push:
     branches: [main]
+    paths:
+      - '**'
+      - '!**/*.md'
+      - '!docs/**'
+      - 'CHANGES-FROM-UPSTREAM.md'
+      - 'THIRD-PARTY-NOTICES.md'
+      - 'bridge/PACKAGE_README.md'
+      - 'react/PACKAGE_README.md'
   pull_request:
+    paths:
+      - '**'
+      - '!**/*.md'
+      - '!docs/**'
+      - 'CHANGES-FROM-UPSTREAM.md'
+      - 'THIRD-PARTY-NOTICES.md'
+      - 'bridge/PACKAGE_README.md'
+      - 'react/PACKAGE_README.md'
   workflow_dispatch:
     inputs:
       ios:
@@ -50,28 +70,12 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-      - name: Android NDK 27
+      # the NDK of the OpenSSL archive hashes pinned in bridge/openssl/build-openssl.sh, installed when missing
+      - name: Android NDK (pinned for OpenSSL)
         id: ndk
-        run: |
-          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
-          echo "NDKs in $sdk/ndk:"; ls -1 "$sdk/ndk" 2>/dev/null || true
-          # highest 27.* by revision (the glob order would put 27.10 before 27.2)
-          best=""; bestkey=0; bestrev=""
-          for d in "$sdk"/ndk/27.*; do
-            [ -f "$d/source.properties" ] || continue
-            rev=$(sed -n 's/^Pkg\.Revision *= *//p' "$d/source.properties" | tr -d '\r')
-            IFS=. read -r a b c <<<"$rev"
-            key=$(( ${a:-0} * 10000000000 + ${b:-0} * 100000000 + ${c:-0} ))
-            if [ "$key" -gt "$bestkey" ]; then bestkey=$key; best=$d; bestrev=$rev; fi
-          done
-          if [ -z "$best" ]; then
-            echo "::error::No Android NDK 27.* in $sdk/ndk: bridge/openssl/build-openssl.sh needs one"
-            exit 1
-          fi
-          echo "Using NDK $bestrev ($best)"
-          echo "ANDROID_NDK_ROOT=$best" >> "$GITHUB_ENV"
-          echo "version=$bestrev" >> "$GITHUB_OUTPUT"
-      # only the 4 built archives and the upstream 3.3.1 arm64 archive, not the 900 MB openssl-build scratch folder
+        run: bash bridge/openssl/ci-ndk.sh
+      # only the 4 built archives and the upstream 3.3.1 arm64 archive, not the 900 MB openssl-build scratch folder.
+      # A cached archive is reused only when it matches its pinned SHA-256.
       - name: OpenSSL cache
         uses: actions/cache@v6
         with:
@@ -86,7 +90,7 @@ jobs:
             bridge/.cache/node
             react/.cache
           key: upstream-${{ hashFiles('bridge/build.mjs', 'react/build.mjs') }}
-      - name: OpenSSL 3.5 LTS for Android (skipped per ABI when cached)
+      - name: OpenSSL 3.5 LTS for Android (built, or taken from the cache when it matches the pinned SHA-256)
         run: bridge/openssl/build-openssl.sh
       - run: npm run build
       - name: Packages
@@ -191,7 +195,7 @@ jobs:
           tail -5 gradle-debug.log
 
   # Runs the release APK of the android job on emulators and checks the self-check screen twice
-  # (AFTERDB_SELF_CHECK_OK, then launches 1 and 2 after a force-stop). Started by hand (Actions tab).
+  # (AFTERDB_SELF_CHECK_OK, then launches 1 and 2 after a force-stop). On pushes to main and by hand (Actions tab).
   android-run:
     if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.emulators)
     needs: android
@@ -217,6 +221,9 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
+      # A GitHub-hosted emulator sometimes never finishes booting: then, and only then, one retry. The action runs the
+      # script only once the emulator has booted, and the script's first line leaves a marker file. A failure without
+      # the marker: the emulator did not boot, retry. A failure with the marker: the self-check failed, the job fails.
       - name: Self-check on the emulator
         id: emu1
         continue-on-error: true
@@ -229,10 +236,22 @@ jobs:
           cores: ${{ matrix.cores }}
           ram-size: ${{ matrix.ram }}
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
-          script: bash scripts/android-selfcheck.sh app-release.apk com.afterdbexample android-${{ matrix.api }}-${{ matrix.target }}.png
-      # a GitHub-hosted emulator sometimes never finishes booting: one retry
-      - name: Self-check on the emulator (retry)
+          script: |
+            touch emulator-booted
+            bash scripts/android-selfcheck.sh app-release.apk com.afterdbexample android-${{ matrix.api }}-${{ matrix.target }}.png
+      - name: Emulator booted? (a failed self-check fails the job here, without retry)
+        id: boot1
         if: steps.emu1.outcome == 'failure'
+        run: |
+          if [ -f emulator-booted ]; then
+            echo "booted=true" >> "$GITHUB_OUTPUT"
+            echo "::error::the emulator booted and the self-check failed: no retry"
+            exit 1
+          fi
+          echo "booted=false" >> "$GITHUB_OUTPUT"
+          echo "the emulator did not boot: one retry"
+      - name: Self-check on the emulator (retry, the emulator did not boot)
+        if: steps.emu1.outcome == 'failure' && steps.boot1.outputs.booted == 'false'
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: ${{ matrix.api }}
@@ -314,7 +333,7 @@ jobs:
           retention-days: 7
 
   # Runs the release APK of the expo-android job (R8 on) on Android 16 and checks the self-check screen twice, like
-  # android-run. Started by hand (Actions tab).
+  # android-run. On pushes to main and by hand (Actions tab).
   expo-android-run:
     if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.emulators)
     needs: expo-android
@@ -330,6 +349,7 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
+      # one retry only when the emulator did not boot (marker file written by the script's first line), as in android-run
       - name: Self-check on the emulator
         id: emu2
         continue-on-error: true
@@ -342,10 +362,22 @@ jobs:
           cores: 4
           ram-size: 4096M
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
-          script: bash scripts/android-selfcheck.sh app-release.apk com.afterdbexample.expo58 expo58-android-36.png
-      # a GitHub-hosted emulator sometimes never finishes booting: one retry
-      - name: Self-check on the emulator (retry)
+          script: |
+            touch emulator-booted
+            bash scripts/android-selfcheck.sh app-release.apk com.afterdbexample.expo58 expo58-android-36.png
+      - name: Emulator booted? (a failed self-check fails the job here, without retry)
+        id: boot2
         if: steps.emu2.outcome == 'failure'
+        run: |
+          if [ -f emulator-booted ]; then
+            echo "booted=true" >> "$GITHUB_OUTPUT"
+            echo "::error::the emulator booted and the self-check failed: no retry"
+            exit 1
+          fi
+          echo "booted=false" >> "$GITHUB_OUTPUT"
+          echo "the emulator did not boot: one retry"
+      - name: Self-check on the emulator (retry, the emulator did not boot)
+        if: steps.emu2.outcome == 'failure' && steps.boot2.outputs.booted == 'false'
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: 36
@@ -512,8 +544,9 @@ jobs:
         env:
           RN: ${{ matrix.rn }}
         run: |
-          # the CLI refuses dots in project names; --version picks the template of that React Native version
-          npx --yes @react-native-community/cli@latest init RnApp --version "$RN" --skip-git-init --install-pods false --skip-install
+          # the CLI refuses dots in project names; --version picks the template of that React Native version.
+          # CLI pinned: 20.2.0 was npm's latest in the green runs of 2026-11-09 (42712609349, 42716333335)
+          npx --yes @react-native-community/cli@20.2.0 init RnApp --version "$RN" --skip-git-init --install-pods false --skip-install
           cp example/App.tsx example/schema.ts RnApp/
           # realm and @realm/react from the tarballs of the packages job, as in the example app
           node -e '

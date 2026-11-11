@@ -1,0 +1,17 @@
+realm-core 20.1.0, src/realm/util/cli_args.cpp (Apache License 2.0): calls std::strtol without including <cstdlib>.
+With Xcode 26.6: error: no member named 'strtol' in namespace 'std'. Adds the include, with a comment that marks the
+file as changed.
+Modified by Pomwik (Firas Hmedi), 2026. Apache License 2.0, like the file it changes.
+
+diff --git a/src/realm/util/cli_args.cpp b/src/realm/util/cli_args.cpp
+index a199b2e..a0739db 100644
+--- a/src/realm/util/cli_args.cpp
++++ b/src/realm/util/cli_args.cpp
+@@ -3,6 +3,7 @@
+ #include <algorithm>
+ #include <cerrno>
+ #include <cstdint>
++#include <cstdlib> // Modified by Pomwik (Firas Hmedi), 2026, see scripts/core/patches in afterdb: for std::strtol
+ #include <string>
+ 
+ namespace realm::util {

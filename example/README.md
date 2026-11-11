@@ -50,7 +50,25 @@ bash ../scripts/ios-selfcheck.sh ios/build/Build/Products/Release-iphonesimulato
 
 Debug builds load their JavaScript from Metro: `npm start`, then `npm run android` or `npm run ios`.
 
+## Upgrade mode
+
+`ENTRY_FILE=index.upgrade.js` at build time (read by React Native's Gradle plugin and by the Xcode bundle phase)
+builds the upgrade test instead of the self-check (`upgrade/`). The workflow `.github/workflows/upgrade.yml` builds
+it once with the official `realm@20.2.0` and `@realm/react@0.20.0` and once with afterdb, then installs one build
+over the other on the same emulator or simulator (`scripts/android-upgrade.sh`, `scripts/ios-upgrade.sh`).
+
+Each launch is one stage. It opens a plain file and an encrypted file (fixed 64-byte test key), checks every object
+that earlier stages wrote (each field against the generator in `upgrade/data.ts`, and the SHA-256 recorded by the
+stage that wrote it), then adds 120 objects that use every property type of realm-js v20 (primitives, optionals,
+lists, sets, dictionaries, mixed with nested collections, counter, links, embedded objects, backlinks, a full-text
+index). The screen shows `AFTERDB_UPGRADE_OK stage=<n> history=<package that wrote each stage> items=<count>`.
+
+```bash
+cd example/android
+ENTRY_FILE=index.upgrade.js ./gradlew assembleRelease -PreactNativeArchitectures=x86_64 --no-daemon
+```
+
 ## Licence
 
-`App.tsx`, `schema.ts` and the self-check are under the Apache License 2.0 (`../LICENSE`). The files that come from
+`App.tsx`, `schema.ts`, `index.upgrade.js`, `upgrade/` and the self-check are under the Apache License 2.0 (`../LICENSE`). The files that come from
 the React Native app template are under the MIT licence: see `LICENSE-template`.

@@ -194,10 +194,13 @@ Runs of `.github/workflows/core-from-source.yml` on this branch:
 | 42724560193 | `5453871` | Android jobs and emulator run green (no iOS job yet) |
 | 42726972499 | `5f31b68` | Android green. iOS failed: Xcode 26.6 does not build the unchanged sources |
 | 42728483279 | `67cff69` | All jobs green: Android arm64-v8a and x86_64, emulator run, iOS simulator arm64 with the two patches |
+| 42926408101 | `216731b` | All jobs green, with the current scripts: the Android comparison that fails on a difference, the macOS change of `build-android-core.sh` (not used on Linux), the patches that mark the files they change |
 
-The numbers below are from run 42728483279. Run 42724560193 gave the same sizes and symbol counts. These runs used
-`build-android-core.sh` before the macOS change: on Linux its CMake command is the same, and the line about the parser
-sources it prints now did not exist yet.
+The numbers below are from run 42728483279. Run 42724560193 gave the same Android sizes and symbol counts, and run
+42926408101 the same Android and iOS ones. Run 42926408101 is the first one with the current `build-android-core.sh`: on `ubuntu-24.04` CMake
+regenerated the parser with bison 3.8.2 and flex 2.6.4, and the script printed `Parser sources
+(src/realm/parser/generated): identical to the ones committed in realm-core` for both ABIs. Its comparison step
+printed `archive members, global symbols and headers: no difference` for both ABIs.
 
 ### Android on GitHub Actions
 
@@ -253,6 +256,8 @@ package:
   afterdb already ships in the xcframework headers) and `0002-cli_args-include-cstdlib.patch` (adds
   `#include <cstdlib>`): `ARCHIVE SUCCEEDED` with no other compile error. `build-ios-sim-core.sh` took 4 min 25 s
   (clone, configure, build).
+- Run 42926408101, with the same patches plus one comment in each changed file that marks it as changed:
+  `ARCHIVE SUCCEEDED`, the same size and symbol counts as below, self-check OK on launch 1 and launch 2.
 
 | | prebuilt arm64 slice | built here |
 |---|---|---|
@@ -263,10 +268,14 @@ package:
 | Build record of the first object file (`vtool`) | minos 14.0, SDK 17.5 | minos 14.0, SDK 26.5 |
 
 Upstream's objects record SDK 17.5 (Xcode 15.4, the version `apple.ts` expects) and this build used Xcode 26.6, so the
-compiler and C++ library differ. The first 15 names on
-each side (printed in the job log) are mostly constructors, destructors and template instantiations, which a compiler
-can inline or emit differently; the undefined ones are libc++ functions plus `acosl` and `wmemchr`. The other names
-were not looked at.
+compiler and C++ library differ. The first 15 names on each side (printed in the job log) are mostly constructors,
+destructors and template instantiations, which a compiler can inline or emit differently; the undefined ones are
+libc++ functions plus `acosl` and `wmemchr`. The other names were not looked at.
+
+This job regenerated `query_flex.cpp` with the runner's Apple flex 2.6.4 and built the committed `query_bison.cpp`
+(bison 2.3 is rejected): `PhaseScriptExecution Generate .../query_flex.cpp` in the xcodebuild log of run 42728483279.
+The prebuilt simulator slice also has `yy_scan_bytes(const char*, unsigned long, void*)`, the signature Apple's flex
+writes, and not the `int` one of the committed scanner.
 
 The example app with this slice (`lipo -replace arm64`, the x86_64 slice left prebuilt), no frameworks,
 Release, `macos-26` runner:
@@ -286,7 +295,8 @@ Release, `macos-26` runner:
 - Android on a Mac: run on one Apple silicon Mac with macOS 14.4.1 only (arm64-v8a and x86_64 engine, arm64-v8a app).
   Intel Macs, other macOS versions and a Mac with Homebrew's GNU bison or flex: not tried. The x86_64 engine built on
   the Mac was compared but not put in an app or run.
-- The macOS change of `build-android-core.sh` has not run on GitHub Actions. On Linux its CMake command is the same.
+- The macOS part of `build-android-core.sh` has only run on this Mac. On GitHub Actions (Linux, run 42926408101) the
+  script runs the same CMake command as before.
 - iOS on this Mac: not built, it has no Xcode. The iOS results above come from the `macos-26` runner only.
 - Real devices: not run.
 - realm-core's own test suite: not built or run (`REALM_BUILD_LIB_ONLY=ON`).

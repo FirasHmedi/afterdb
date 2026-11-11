@@ -27,11 +27,20 @@ unchanged.
 - iOS, React Native 0.88.1, Xcode 26.4.1 and 26.6: on the simulator, the app runs and keeps its data after a
   restart (Xcode 26.6: static frameworks, dynamic frameworks and no frameworks; Xcode 26.4.1: no frameworks).
   Device builds succeed (without code signing).
+- iOS, new apps from the React Native 0.86.3 and 0.87.1 templates, Xcode 26.6: on the simulator, the Release build
+  runs and keeps its data after a restart (static and dynamic frameworks). Device builds succeed (without code
+  signing).
+- Upgrade from realm@20.2.0, React Native 0.88.1, release builds: an app built with realm@20.2.0 writes a plain and
+  an encrypted realm; the same app built with this package, installed over it, opens and checks both and writes
+  more; the realm@20.2.0 app, installed again, reads everything. Android 16 (x86_64) and Android 11 (x86)
+  emulators, the iOS simulator, and armeabi-v7a through the ARM translation of an x86_64 emulator (there the files
+  come from the realm@20.2.0 x86_64 build).
 - Node 22 (macOS arm64, Linux x64): offline install, open, write, query, encrypted realm.
 - realm-js's own test suites, compared with realm@20.2.0 on macOS arm64 only: Node integration tests, 645 tests,
   identical results test by test; `@realm/react`: same results in 35 of 36 runs (one run froze under machine load).
 
-Not tested yet: real devices, and iOS with React Native 0.86/0.87 or Expo.
+Not tested yet: real devices, Expo on iOS, Debug builds of the React Native 0.86/0.87 apps on iOS, and upgrades
+from other realm versions or in Debug builds.
 
 Not supported: Device Sync, the old React Native architecture, bugs inside realm-core.
 

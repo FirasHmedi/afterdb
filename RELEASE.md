@@ -10,9 +10,12 @@ names and versions are `NAME` and `VERSION` in `bridge/build.mjs` and `react/bui
 ## Steps
 
 1. Bump `VERSION` in `bridge/build.mjs` and/or `react/build.mjs`. The tarball names also appear in
-   `.github/workflows/ci.yml` (converter tests, `ios-rn` job), `bridge/test/bridge.test.mjs`,
-   `review/install.test.mjs`, `review/node-api.test.mjs`, `example/package.json` and `examples/expo-58/package.json`,
-   and the versions in the READMEs.
+   `.github/workflows/ci.yml` (converter tests, `ios-rn` job), `.github/workflows/upgrade.yml` and
+   `scripts/upgrade-installed.sh` (`afterdb-commit` only), `bridge/test/bridge.test.mjs`, `review/install.test.mjs`,
+   `review/node-api.test.mjs`, `review/patches.test.mjs`, `example/package.json` and `examples/expo-58/package.json`.
+   The new versions also go in the headings of `CHANGES-FROM-UPSTREAM.md` and in the alias lines of
+   `bridge/PACKAGE_README.md` and `react/PACKAGE_README.md` (they ship in the packages). Leave the published versions
+   everywhere else until the new ones are on npm (step 7).
 2. Merge to `main` and wait for the CI run of that push to pass. A push to `main` runs every job: packages and tests,
    Android builds, the emulator runs, and the iOS builds and simulator runs (8 macOS jobs). A commit that only changes
    Markdown files or `docs/` starts no CI run (except the 4 Markdown files listed under "CI: which jobs run when"):
@@ -35,6 +38,12 @@ names and versions are `NAME` and `VERSION` in `bridge/build.mjs` and `react/bui
    shows meanwhile).
 6. Check the provenance: `npm view @pomwik/afterdb@<version> dist.attestations` must print something. Not tested
    yet: no version has gone through this workflow so far.
+7. Once the new versions are on npm, move to them what installs the published packages or tells users to: the alias
+   lines in `README.md` (and its "Is this Realm" section), `MIGRATING-FROM-REALM.md` and
+   `examples/expo-58/README.md`; `REALM_ALIAS` and `REACT_ALIAS` in `.github/workflows/registry.yml`; the
+   `afterdb-npm` lines of `.github/workflows/upgrade.yml` and `scripts/upgrade-installed.sh`; `AFTERDB`,
+   `AFTERDB_REACT` and their integrity values in `.github/workflows/core-from-source.yml`
+   (`npm view <package>@<version> dist.integrity`), and the commands of `docs/CORE-FROM-SOURCE.md`.
 
 ## Trusted publisher on npmjs.com (Firas only)
 

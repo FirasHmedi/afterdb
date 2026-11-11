@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
-const tarball = join(root, 'bridge/out/pomwik-afterdb-20.3.0.tgz');
+const tarball = join(root, 'bridge/out/pomwik-afterdb-20.3.1.tgz');
 const upstreamNM = join(root, 'converter/node_modules');
 
 function setup() {

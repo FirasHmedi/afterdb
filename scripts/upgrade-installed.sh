@@ -12,7 +12,7 @@ lock() { node -p "const l = require('./package-lock.json').packages['node_module
 case "$SRC" in
   realm-20.2.0) want="realm@20.2.0 @realm/react@0.20.0"; registry=1 ;;
   afterdb-npm) want="@pomwik/afterdb@20.3.0 @pomwik/afterdb-react@0.20.1"; registry=1 ;;
-  afterdb-commit) want="@pomwik/afterdb@20.3.0 @pomwik/afterdb-react@0.20.1"; registry="" ;;
+  afterdb-commit) want="@pomwik/afterdb@20.3.1 @pomwik/afterdb-react@0.20.2"; registry="" ;;
   *) echo "::error::unknown source $SRC" >&2; exit 1 ;;
 esac
 read -r want_realm want_react <<<"$want"

@@ -10,7 +10,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const tarball = join(root, 'bridge/out/pomwik-afterdb-20.3.0.tgz');
+const tarball = join(root, 'bridge/out/pomwik-afterdb-20.3.1.tgz');
 const BLOCKED = { ...process.env, https_proxy: 'http://127.0.0.1:9', HTTPS_PROXY: 'http://127.0.0.1:9', http_proxy: 'http://127.0.0.1:9', HTTP_PROXY: 'http://127.0.0.1:9', npm_config_proxy: 'http://127.0.0.1:9', npm_config_https_proxy: 'http://127.0.0.1:9' };
 
 function app(name) {

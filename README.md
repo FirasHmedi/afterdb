@@ -67,7 +67,10 @@ Only what has actually been run is marked as passing. See `docs/TEST-RESULTS.md`
 | iOS, React Native 0.88.1, **Xcode 26.4.1** (simulator iOS 26.4), no frameworks: Debug and Release builds, app run (13 checks, data kept after a restart), device build | Pass (CI) | 2026-11-09 |
 | iOS, React Native 0.88.1, Xcode 26.6 (simulator iOS 26.5), no frameworks, static and dynamic frameworks: Debug and Release builds, app run (13 checks, data kept after a restart), device build | Pass (CI) | 2026-11-09 |
 | iOS, new apps from the React Native **0.86.3** and **0.87.1** templates, Xcode 26.6 (simulator iOS 26.5), static and dynamic frameworks: Release build, app run (13 checks, data kept after a restart), device build | Pass (CI) | 2026-11-09 |
-| Real devices (an iPhone, an Android phone); iOS with Expo; Debug builds of the React Native 0.86/0.87 apps on iOS; iOS with React Native built from source (every iOS job uses React Native's prebuilt core, the default); the armeabi-v7a and x86 builds at run time; opening on Android or iOS a file written by an app on realm 20.2.0; an app built with the two lines installed from npmjs.com | Not tested yet | |
+| Switching an app from realm 20.2.0 to afterdb and back (Release, React Native 0.88.1): the official realm@20.2.0 app writes a plain and an encrypted file, afterdb is installed over it and opens, checks and extends them, then realm@20.2.0 reads everything again (360 items). Android 16 x86_64, Android 11 x86, armeabi-v7a through the ARM translation of an x86_64 Android 11 image, iPhone simulator (iOS 26.5, Xcode 26.6). afterdb built from the commit and from the npm tarball | Pass (CI, runs 42933195358 and 43000910682) | 2026-11-11 |
+| The x86 and armeabi-v7a builds at run time (self-check on Android 11 images; armeabi-v7a only through ARM translation) | Pass (CI, run 43000910682) | 2026-11-11 |
+| A new React Native 0.88.1 app with the two alias lines, installed from npmjs.com (20.3.0): self-check on an Android 16 emulator and the iOS simulator, OpenSSL 3.5.9 in the 4 ABIs, 16 KB alignment | Pass (CI, run 42933195324) | 2026-11-11 |
+| Real devices (an iPhone, an Android phone); a real ARM CPU (arm64-v8a and armeabi-v7a only ran on emulators, armeabi-v7a through translation); iOS with Expo; Debug builds in the switch test and of the React Native 0.86/0.87 apps on iOS; switching from realm versions other than 20.2.0; iOS with React Native built from source (every iOS job uses React Native's prebuilt core, the default) | Not tested yet | |
 
 Dates are UTC. The CI dates are those of run
 [42716333335](https://github.com/FirasHmedi/afterdb/actions/runs/42716333335) (commit 2901026, 16 jobs green). Later
@@ -109,7 +112,8 @@ Both are afterdb, not a MongoDB release.
 
 - Device Sync (removed upstream in v20), the old React Native architecture.
 - Bugs inside the realm-core C++ engine (for example realm/realm-js#7061, #7082, #7084): we ship the upstream
-  prebuilt engine unchanged, and we cannot rebuild it yet.
+  prebuilt engine unchanged. Rebuilding it from source works for Android arm64-v8a and x86_64 and the iOS simulator
+  (docs/CORE-FROM-SOURCE.md); other slices and a release with a rebuilt engine are not done yet.
 - Node on 32-bit Linux ARM (`linux-arm`) and 32-bit Windows (`win32-ia32`): upstream serves Node binaries for them,
   afterdb does not ship them.
 - Realm Swift, Kotlin and Flutter.
@@ -128,7 +132,7 @@ Work on afterdb is best effort. There is no fixed response time for GitHub issue
 
 What we follow:
 - OpenSSL 3.5.x releases with security fixes, for the OpenSSL linked into Android builds. 3.5.9 is the newest 3.5.x
-  release on 2026-11-10. Nothing alerts us to a new release automatically yet.
+  release on 2026-11-10. A weekly workflow (`openssl-watch.yml`) fails when a newer 3.5.x release exists.
 - Build breaks with new React Native, Expo and Xcode releases.
 
 What this does not cover:
@@ -141,8 +145,9 @@ npm packages as deprecated.
 
 ## Development
 
-From scratch, build OpenSSL first (needs the Android NDK 27.*, found through `ANDROID_NDK_ROOT` or
-`$ANDROID_HOME/ndk/27.*`): `npm run build` stops if the OpenSSL archives are missing.
+From scratch, build OpenSSL first (needs the Android NDK 27.3.13750724, found through `ANDROID_NDK_ROOT` or
+`$ANDROID_HOME/ndk/27.*`; the script checks the 4 archives against pinned SHA-256 values. Set
+`AFTERDB_OPENSSL_ANY_NDK=1` to build with another NDK 27): `npm run build` stops if the OpenSSL archives are missing.
 
 ```bash
 bridge/openssl/build-openssl.sh   # OpenSSL 3.5.9 for the 4 Android ABIs, into bridge/.cache/openssl/

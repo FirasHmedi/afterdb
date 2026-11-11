@@ -14,7 +14,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
 export const UPSTREAM = { name: 'realm', version: '20.2.0', integrity: 'sha512-xkfczMrxnZK1KlJ5JBWGMe2Cs48+p1D8T9r8TO6FrZhnm2KUUhBJPOpOIoJ4h1O20fCxlfJ2pIg3mplJTUgF6g==' };
 export const NAME = '@pomwik/afterdb';
-export const VERSION = '20.3.0';
+export const VERSION = '20.3.1';
 const CACHE = join(here, '.cache');
 const out = process.argv.includes('--out') ? process.argv[process.argv.indexOf('--out') + 1] : join(here, 'out');
 

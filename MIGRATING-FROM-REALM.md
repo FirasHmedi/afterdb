@@ -15,9 +15,11 @@
   by each package were read by the other, both ways, plain and encrypted (independent review, 2026-11-06). There,
   both packages load the same binary: afterdb's `realm.node` is byte-identical to upstream's (SHA-256 compared for
   the 5 platforms afterdb ships).
-- Not tested yet: opening, on Android or iOS, a file written by an app on realm 20.2.0. On Android the engine
-  encrypts files with OpenSSL, which is 3.5.9 in afterdb instead of 3.3.1 upstream. Try it first on a copy of your
-  app's data.
+- In an app, both ways, plain and encrypted: tested in CI on Android emulators and the iPhone simulator (Release
+  builds; the `Upgrade` workflow, runs 42933195358 and 43000910682): the app on realm@20.2.0 writes, afterdb is
+  installed over it and reads and writes, then realm@20.2.0 reads everything again. On Android the engine encrypts
+  files with OpenSSL, which is 3.5.9 in afterdb instead of 3.3.1 upstream. Not tested on real devices: try it first
+  on a copy of your app's data.
 - From an older realm (for example 12.x): not tested. Remove any sync code first, then try on a copy of the app's
   data, not on real users. Opening a file with v20 may upgrade its format, and after that an older realm version
   can no longer open it.

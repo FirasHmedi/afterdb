@@ -10,7 +10,7 @@ Every file listed here was modified, removed or added. Modified text files carry
 Hmedi), 2026 » note, except `package.json`: JSON has no comments, so it carries an `afterdb` field instead (upstream
 name, version and npm integrity).
 
-## @pomwik/afterdb 20.3.0 (from realm@20.2.0)
+## @pomwik/afterdb 20.3.1 (from realm@20.2.0)
 
 | File | Change | Why |
 |---|---|---|
@@ -21,14 +21,14 @@ name, version and npm integrity).
 | `package.json` | `imports["#realm.node"]` removed | Its only user was `dist/platform/node/binding.js` (patched below); the build checks that nothing else in the package refers to it |
 | `package.json` | `gypfile: false`; `files`: `binding.gyp` removed, `prebuilds/node`, `LICENSE`, `NOTICE`, `THIRD-PARTY-NOTICES.md`, `CHANGES-FROM-UPSTREAM.md` and `checksums.txt` added | See `binding.gyp` below; the added files ship in the package |
 | `package.json` | `afterdb` field added | Marks the file as modified, and records where it comes from |
-| `package.json` | From the version after 20.3.0: `sqlite`, `rocksdb`, `leveldb`, `async storage` and `asyncstorage` removed from `keywords`; `config.anonymizedBundleId` removed | The package is none of those storage engines; only the removed analytics script read `anonymizedBundleId` |
+| `package.json` | From 20.3.1 (not in 20.3.0): `sqlite`, `rocksdb`, `leveldb`, `async storage` and `asyncstorage` removed from `keywords`; `config.anonymizedBundleId` removed | The package is none of those storage engines; only the removed analytics script read `anonymizedBundleId` |
 | `dist/scripts/submit-analytics.*`, `scripts/submit-analytics.js` | Removed | Install-time analytics |
 | `prebuilds/node/<platform>-<arch>/realm.node` | Added: the upstream N-API binaries for darwin-arm64, darwin-x64, linux-x64, linux-arm64, win32-x64, unchanged. Upstream also serves binaries for linux-arm and win32-ia32 (static.realm.io, 20.2.0); they are not shipped, so on those platforms Node gets the error described in the next row. The Linux binaries contain OpenSSL built from the 3.3.1 sources, end-of-life since 2026-04-09: we cannot rebuild them yet | Installs work offline and in CI |
 | `dist/platform/node/binding.js` | Loads the binary of the current platform; if none is shipped for it, throws an error that names the platform and the 5 shipped ones (instead of the upstream `#realm.node` lookup) | Same, and a clear message instead of a module-not-found error |
 | `RealmJS.podspec` | `install_modules_dependencies(s)` instead of `s.dependency 'React'` | iOS linking on React Native >= 0.86 with frameworks (realm/realm-js#7157, fix by TPXP, reused with credit) |
 | `RealmJS.podspec` | `HEADER_SEARCH_PATHS` is a string instead of an array | React Native's `install_modules_dependencies` appends to it as a string, so the array became `["..."] …` and broke header lookups (found by the independent review) |
 | `RealmJS.podspec` | `REALM_ENABLE_SYNC=1` removed from the preprocessor flags, and the upstream comment above it (« compiled with Sync enabled ») replaced | v20 has no sync; no shipped header or binding source reads it |
-| `RealmJS.podspec` | From the version after 20.3.0: `s.source` names github.com/FirasHmedi/afterdb (tag `v<version>`) instead of a realm/realm-js page | React Native installs the pod from its folder and does not read `s.source`; the podspec names this project |
+| `RealmJS.podspec` | From 20.3.1 (not in 20.3.0): `s.source` names github.com/FirasHmedi/afterdb (tag `v<version>`) instead of a realm/realm-js page | React Native installs the pod from its folder and does not read `s.source`; the podspec names this project |
 | `RealmJS.podspec` | `s.platform`: React Native's minimum iOS version (`min_ios_version_supported`) when React Native defines it, otherwise 15.1, instead of iOS 9.0 | 9.0 is far below what React Native >= 0.71 supports |
 | `binding/android/build.gradle` | `ndkVersion rootProject.ext.ndkVersion` when the app defines it, as React Native libraries do; otherwise AGP's default, as before | `librealm.so` was built with AGP's default NDK (27.0 with AGP 8.12, 28.2 with AGP 9.2) instead of the app's |
 | `binding/android/build.gradle`, new `binding/android/consumer-rules.pro` | `consumerProguardFiles 'consumer-rules.pro'` with `-keep class io.realm.react.** { *; }` | With R8 in the app's release build (on by default in Expo SDK 58), `io.realm.react.util.SSLHelper`, looked up only from native code (`FindClass` in `JNI_OnLoad`), was removed and the app crashed at start with `ClassNotFoundException`. Found with the Expo 58 example on 2026-11-06 |
@@ -39,9 +39,9 @@ name, version and npm integrity).
 | `binding.gyp` | Removed | It only rebuilds the Node binary from source; npm would otherwise run node-gyp at install |
 | `README.md` | Replaced, with a « Modified by Pomwik (Firas Hmedi), 2026 » note | Describes this package |
 | `LICENSE`, `NOTICE`, `THIRD-PARTY-NOTICES.md`, `CHANGES-FROM-UPSTREAM.md`, `checksums.txt` | Added (the upstream tarball has no LICENSE file). `THIRD-PARTY-NOTICES.md` lists the third-party code inside the prebuilt realm-core engine and the Node binaries, with its licence texts | Licence and traceability |
-| `RealmJS.podspec`, `binding/android` | Not renamed, on purpose: the iOS pod `RealmJS`, the Android namespace `io.realm.react` and the native library `librealm.so` keep their upstream names. The pod version follows the package version (20.3.0, not an upstream release) | Drop-in compatibility: React Native autolinking, existing Podfiles and lockfiles, and the native code that looks up `io.realm.react` classes by name keep working unchanged |
+| `RealmJS.podspec`, `binding/android` | Not renamed, on purpose: the iOS pod `RealmJS`, the Android namespace `io.realm.react` and the native library `librealm.so` keep their upstream names. The pod version follows the package version (20.3.1, not an upstream release) | Drop-in compatibility: React Native autolinking, existing Podfiles and lockfiles, and the native code that looks up `io.realm.react` classes by name keep working unchanged |
 
-## @pomwik/afterdb-react 0.20.1 (from @realm/react@0.20.0)
+## @pomwik/afterdb-react 0.20.2 (from @realm/react@0.20.0)
 
 | File | Change | Why |
 |---|---|---|

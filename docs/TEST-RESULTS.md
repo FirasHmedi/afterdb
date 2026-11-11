@@ -250,13 +250,9 @@ minimum version 9.0 in the podspec, `librealm.so` built with AGP's NDK instead o
   run in CI, see above).
 - iOS with React Native built from source: every iOS job above uses React Native's prebuilt core
   (`pod install` installs `React-Core-prebuilt`, the default for React Native 0.86.3, 0.87.1 and 0.88.1).
-- The armeabi-v7a and x86 builds at run time: they are built, and their OpenSSL checked, in CI, but the emulators
-  are x86_64 in CI and arm64 locally.
-- Opening, on Android or iOS, a file written by an app on realm 20.2.0, plain or encrypted. The cross-reads above
-  ran in Node only. On Android the engine encrypts files with OpenSSL (its `librealm.a` calls `EVP_aes_256_cbc` and
-  `HMAC`), which is 3.5.9 in afterdb and 3.3.1 upstream.
-- A React Native app built with the two alias lines installed from npmjs.com: CI installs `file:` tarballs, and the
-  alias installs above used a local registry.
-- The `@pomwik/afterdb` tarball published on npm, in CI (see "Packages tested by CI").
+- A real ARM CPU in CI: armeabi-v7a ran only through the ARM translation of an x86_64 Android 11 image (run
+  43000910682); arm64-v8a only ran locally on an Apple-silicon emulator.
+- Switching from realm 20.2.0 in Debug builds, and from realm versions other than 20.2.0 (the `Upgrade` workflow
+  covers realm@20.2.0 to afterdb and back in Release builds: runs 42933195358 and 43000910682).
 - The Node binaries for Windows, macOS x64 and Linux arm64 are byte-identical to upstream but were not executed
   (macOS arm64 runs locally, Linux x64 in CI with `npm test`).

@@ -3,11 +3,11 @@
   "version": "1.0.0",
   "main": "index.ts",
   "dependencies": {
-    "@realm/react": "file:../../react/out/pomwik-afterdb-react-0.20.1.tgz",
+    "@realm/react": "file:../../react/out/pomwik-afterdb-react-0.20.2.tgz",
     "expo": "~58.0.23",
     "react": "19.3.0",
     "react-native": "0.88.1",
-    "realm": "file:../../bridge/out/pomwik-afterdb-20.3.0.tgz"
+    "realm": "file:../../bridge/out/pomwik-afterdb-20.3.1.tgz"
   },
   "devDependencies": {
     "@types/react": "~19.3.0",

@@ -37,9 +37,9 @@ const packed = (name, version) => `${name.replace('@', '').replace('/', '-')}-${
 const tarball = join(root, 'bridge/out', packed(NAME, VERSION));
 const reactTarball = join(root, 'react/out', packed(REACT_NAME, REACT_VERSION));
 
-test('final names: @pomwik/afterdb 20.3.0 and @pomwik/afterdb-react 0.20.1', () => {
-  assert.equal(packed(NAME, VERSION), 'pomwik-afterdb-20.3.0.tgz');
-  assert.equal(packed(REACT_NAME, REACT_VERSION), 'pomwik-afterdb-react-0.20.1.tgz');
+test('final names: @pomwik/afterdb 20.3.1 and @pomwik/afterdb-react 0.20.2', () => {
+  assert.equal(packed(NAME, VERSION), 'pomwik-afterdb-20.3.1.tgz');
+  assert.equal(packed(REACT_NAME, REACT_VERSION), 'pomwik-afterdb-react-0.20.2.tgz');
 });
 const read = (f) => readFileSync(join(pkg, f), 'utf8');
 // Temporary folders are removed after the run (the offline install alone leaves about 700 MB)
@@ -153,13 +153,18 @@ test('THIRD-PARTY-NOTICES.md: every external component of the shipped realm-core
 
 test('README of the package: only what was run is claimed as tested', () => {
   const readme = read('README.md');
-  // Each claim matches a run recorded in docs/TEST-RESULTS.md (2026-11-06); iOS beyond RN 0.88.1 is not claimed
+  // Each claim matches a run recorded in docs/TEST-RESULTS.md (2026-11-06), or a CI run: iOS with React Native
+  // 0.86.3 and 0.87.1, Release only (CI 43000911208 static and dynamic frameworks, 43081256830 dynamic); upgrade
+  // from realm@20.2.0, release builds only (Upgrade 42933195358, 43081385331). Expo on iOS is not claimed.
   assert.match(readme, /Android, React Native 0\.88\.1: Debug and release builds for the 4 ABIs/);
   assert.match(readme, /Android, React Native 0\.86\.3 and 0\.87\.1, and Expo SDK 56, 57 and 58/);
   assert.match(readme, /iOS, React Native 0\.88\.1, Xcode 26\.4\.1 and 26\.6: on the simulator/);
-  assert.match(readme, /^Not tested yet: real devices, and iOS with React Native 0\.86\/0\.87 or Expo\.$/m);
+  assert.match(readme, /iOS, new apps from the React Native 0\.86\.3 and 0\.87\.1 templates, Xcode 26\.6: on the simulator, the Release build\n/);
+  assert.match(readme, /Upgrade from realm@20\.2\.0, React Native 0\.88\.1, release builds:/);
+  assert.match(readme, /^Not tested yet: real devices, Expo on iOS, Debug builds of the React Native 0\.86\/0\.87 apps on iOS, and upgrades\nfrom other realm versions or in Debug builds\.$/m);
   const ios = readme.split('\n').filter((l) => /iOS/.test(l));
-  assert.ok(ios.every((l) => !/0\.8[67]|Expo/.test(l) || l.startsWith('Not tested yet')), 'iOS claimed beyond RN 0.88.1');
+  assert.ok(ios.every((l) => !/Expo/.test(l) || l.startsWith('Not tested yet')), 'iOS claimed with Expo');
+  assert.ok(ios.every((l) => !/0\.8[67]/.test(l) || !/Debug/.test(l) || l.startsWith('Not tested yet')), 'iOS Debug claimed for RN 0.86/0.87');
 });
 
 test('Node: one binary per platform, loaded by platform', () => {
